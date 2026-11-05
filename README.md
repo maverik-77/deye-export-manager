@@ -1,39 +1,46 @@
 # Deye Export Manager (Home Assistant Add-on)
 
-Custom Home Assistant add-on for managing a **24-hour export-power schedule** for a Deye inverter. It controls a Home Assistant `number` entity (default: `number.deye_max_sell_power`) through the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar.
+Custom Home Assistant add-on for managing a **24-hour export-power schedule** and viewing/editing **Deye inverter Time of Use (TOU) programs**. It uses the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar with **Export** and **Import** tabs.
 
 ## Required Home Assistant automations: **NONE**
 
-**You do not need to create any Home Assistant automations for this add-on to work.**  
-Core scheduling and applying values to the inverter are handled by the add-on itself (checks every minute, plus **Apply schedule to inverter now** in the UI), as long as:
+**You do not need to create any Home Assistant automations for this add-on to work.**
 
-- the add-on is installed, configured, and **running**;
-- Home Assistant API access is available to the add-on (it uses `homeassistant_api` / Supervisor token);
-- `deye_entity` points to the correct, working Home Assistant entity for your inverter.
+- **Export tab (schedule):** core scheduling and applying export power are handled by the add-on itself (checks every minute, plus **Apply schedule to inverter now**), as long as the add-on is running, has Home Assistant API access (`homeassistant_api` / Supervisor token), and `deye_entity` is correct/controllable.
+- **Import tab (TOU programs):** values are **pulled live from Home Assistant/inverter on every page load** and changes are written only when you click **Save & sync** on a row (or confirm the unsaved-leave prompt). No automations required.
 
 The [Optional Home Assistant automations](#optional-home-assistant-automations-not-required) section below contains **optional** examples only (notifications/safety). They are not required for setup.
 
 ## What it does
 
-- 24-hour schedule managed in the add-on UI (ingress; no host port mapping).
+### Export tab (local schedule, stored in add-on DB)
+- 24-hour export schedule managed in the add-on UI (ingress; no host port mapping).
 - Stores schedule in the add-on’s local SQLite DB (`/data/schedules.db` inside the add-on container).
 - **Add rows in the table**, edit values, drag rows to rearrange the view, then click **Save schedule** (one action). New rows are created on save; existing rows are updated.
 - Power is entered in **Watts** in the UI (`0–16000 W`) and converted/stored internally as needed.
 - **Save validation:** enabled slots must cover the full day continuously with **no gaps/overlaps** (`00:00`–24:00). Use `00:00` as end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot.
 - Pulls **live inverter value** from Home Assistant on page load / after restart, compares with the **schedule expected now**, and prompts you to choose **master** (inverter or schedule) if they differ.
-- Applies the expected power automatically when the schedule changes (checked every minute) and via **Apply Schedule to Inverter Now**.
+- Applies the expected export power automatically when the schedule changes (checked every minute) and via **Apply schedule to inverter now**.
 - Table display reloads ordered by **start time** (longer duration first when start times match). Schedule logic is time-based.
+
+### Import tab (Deye TOU programs, live read/write; no local copy)
+- Shows the **6 Deye Time of Use programs** (`deye_prog1`–`deye_prog6`, as exposed by the Sunsynk/Deye inverter integration/add-on entities in Home Assistant) in **6 rows ordered by program time**.
+- **Always pulls live info from Home Assistant/inverter on page load** (and after sync/reload). **No local copy is kept** for TOU data.
+- **All 7 fields are editable per row:** Time, Power (W), Capacity (%), Grid charge, Mode, Sell, Voltage (V) — using the entity’s live options/min/max/step where available.
+- **Per-row save:** each row has **Save & sync** which writes that program’s values to the inverter via Home Assistant services and reloads live values.
+- **Unsaved changes:** if you edit Import rows and try to leave/navigate away without saving, the UI prompts whether to **sync changes to the inverter before leaving**, leave without syncing, or cancel.
+- **Entity mapping (current implementation):** for each program `N` = 1–6: `select.deye_progN_time`, `number.deye_progN_power`, `number.deye_progN_capacity`, `select.deye_progN_charge`, `select.deye_progN_mode`, `switch.deye_progN_sell`, `number.deye_progN_voltage`. Verify these entities exist and match your inverter/integration before relying on writes.
 
 ## Prerequisites
 
 1. **Home Assistant OS / Supervised** with **Apps** (Add-ons/Supervisor).
-2. An integration that exposes your Deye inverter’s **max export/sell power** as a controllable Home Assistant entity (commonly a `number.*` entity; the exact entity ID depends on your integration, e.g. Solarman/SolarmanPV/Deye-related integrations).
-3. You can find and control that entity in Home Assistant:
+2. **Export:** an integration that exposes your Deye inverter’s **max export/sell power** as a controllable Home Assistant entity (commonly `number.*`; default `number.deye_max_sell_power`).
+3. **Import (TOU):** the corresponding Deye/Sunsynk TOU program entities available in Home Assistant (e.g. `select/number/switch.deye_prog1_*` … `deye_prog6_*`) if you want to use the Import tab.
+4. You can find and control those entities in Home Assistant:
    - Go to **Settings → Devices & services → Entities** or **Developer Tools → States**.
-   - Search for terms like `deye`, `sell`, `export`, `max`.
-   - Confirm the entity you choose can be set (e.g. `number.set_value` works / the value changes as expected). **Back up/verify before relying on it** — integrations differ in units and accepted ranges.
+   - Confirm entities can be set (e.g. `number.set_value`, `select.select_option`, `switch.turn_on/off`). **Back up/verify before relying on it** — integrations differ in units, options, and accepted ranges.
 
-> **Units/scale:** The add-on sends watts (integer) to `number.set_value` and the UI uses Watts. Some integrations expect different units/scales. Verify with a small manual test in **Developer Tools → Services/Actions** before using scheduled control.
+> **Units/scale & safety:** The add-on sends values based on entity types/units shown by Home Assistant. TOU writes change inverter behavior. Verify with small manual tests in **Developer Tools → Actions/Services** before relying on scheduled/TOU control.
 
 ## Installation
 
@@ -44,12 +51,13 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
    ```
 3. Go back to the Apps/add-on store view, click **⋮ → Check for updates** / reload if needed, then find and install **Deye Export Manager**.
 4. Open the add-on page → **Configuration** tab and set:
-   - `deye_entity`: the exact Home Assistant entity ID to control (default `number.deye_max_sell_power`). Replace with your real entity if different.
+   - `deye_entity`: the exact Home Assistant entity ID to control for **Export** (default `number.deye_max_sell_power`). Replace with your real entity if different.
 5. Save configuration, **Start** the add-on, and open the **Log** tab. Confirm there are no startup/API errors.
 6. Enable **Show in sidebar** (or open via the add-on’s ingress/Open Web UI). The panel title is **Deye Export**.
 
 ## Using the UI
 
+### Export tab
 1. **Status panel:** shows configured entity, live inverter value (pulled from HA), schedule expected now, DB/last applied, and coverage status.
 2. **Mismatch prompt:** if inverter value differs from the schedule expected now, choose:
    - **Use inverter value (update app schedule):** updates the currently active slot or creates an all-day baseline in the add-on DB.
@@ -62,7 +70,14 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 4. **Save validation:** enabled slots must form a complete 24-hour partition (00:00–24:00, contiguous, no overlaps). If validation fails, an error is shown and the page reloads from the DB (unsaved edits/new rows from that attempt are not kept).
 5. **Apply schedule to inverter now** (in the table controls): applies the currently expected schedule value immediately (if different from last applied).
 
-## Time & coverage rules
+### Import tab
+1. Open **Import (TOU)** — the page **pulls live TOU program values from HA/inverter**.
+2. Review/edit the **6 program rows** (ordered by time). All 7 fields are editable.
+3. Click **Save & sync** on a row to write that program to the inverter and reload live values.
+4. If you leave with unsaved edits, choose **Sync all & leave**, **Leave without syncing**, or **Cancel**.
+5. If an entity is missing/unavailable, the row shows read/sync issues; check entity IDs/integration state.
+
+## Time & coverage rules (Export)
 
 - Times are `HH:MM`. A slot matches when `start <= current time < end`.
 - **Midnight end:** use `00:00` as the end time (e.g. `22:00–00:00`).
@@ -74,7 +89,7 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 
 | Option | Description | Default |
 |---|---|---|
-| `deye_entity` | Home Assistant entity ID used with `number.set_value` | `number.deye_max_sell_power` |
+| `deye_entity` | Home Assistant entity ID used with `number.set_value` for Export schedule control | `number.deye_max_sell_power` |
 
 ## Optional Home Assistant automations (NOT required)
 
@@ -169,17 +184,18 @@ action:
   - service: notify.notify  # CHANGE to your notify service
     data:
       title: "Deye Export Manager"
-      message: "Optional reminder: review your Deye export schedule if tariffs/plans changed."
+      message: "Optional reminder: review your Deye export/TOU settings if tariffs/plans changed."
 ```
 
 ## Troubleshooting
 
-- **Entity error/not found:** check `deye_entity` in add-on Configuration and confirm it exists in **Developer Tools → States**.
+- **Entity error/not found (Export):** check `deye_entity` in add-on Configuration and confirm it exists in **Developer Tools → States**.
+- **TOU/Import read or sync errors:** confirm the `deye_prog1`–`deye_prog6` entities exist, are available, and accept the selected options/values for your integration. Check add-on **Log** for HA API/service errors.
 - **Schedule not applying:** check add-on **Log**; verify add-on is running, entity is controllable, and units/scale are correct. Use **Apply schedule to inverter now** to test.
-- **Save failed / coverage error:** enabled slots must cover 00:00–24:00 with no gaps/overlaps. Use `00:00` end for midnight; for a final-minute issue, end the last slot at `00:00`.
+- **Save failed / coverage error (Export):** enabled slots must cover 00:00–24:00 with no gaps/overlaps. Use `00:00` end for midnight.
 - **Mismatch prompt:** choose the correct master after reviewing live inverter vs. expected schedule.
 - **After updating add-on:** **Check for updates**, rebuild/update, restart, and hard-refresh the ingress UI if it looks stale.
-- **Separate data:** old standalone app data is not auto-imported into the add-on’s `/data/schedules.db`.
+- **Separate data:** old standalone app data is not auto-imported into the add-on’s `/data/schedules.db`. TOU data is not stored locally.
 
 ## Repository / development
 

@@ -135,6 +135,120 @@ async def get_ha_entity_state():
         return {"ok": False, "error": str(e)}
 
 
+
+
+async def get_entity_state(entity_id: str):
+    if not HA_TOKEN:
+        return {"ok": False, "error": "No Supervisor token available", "entity_id": entity_id}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{HA_URL}/api/states/{entity_id}",
+                headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+                timeout=10.0,
+            )
+            if response.status_code == 404:
+                return {"ok": False, "error": f"Entity not found: {entity_id}", "entity_id": entity_id}
+            if response.status_code >= 400:
+                return {"ok": False, "error": f"HA API error {response.status_code}", "entity_id": entity_id}
+            data = response.json()
+            attrs = data.get("attributes") or {}
+            return {
+                "ok": True,
+                "entity_id": data.get("entity_id", entity_id),
+                "state": data.get("state"),
+                "attributes": attrs,
+                "unit": attrs.get("unit_of_measurement"),
+                "friendly_name": attrs.get("friendly_name"),
+            }
+    except Exception as e:
+        return {"ok": False, "error": str(e), "entity_id": entity_id}
+
+
+async def ha_call_service(domain: str, service: str, payload: dict):
+    if not HA_TOKEN:
+        return False, "No Supervisor token available"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{HA_URL}/api/services/{domain}/{service}",
+                headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=15.0,
+            )
+            if response.status_code in (200, 201):
+                return True, None
+            return False, f"HA API error {response.status_code}: {response.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
+TOU_PROGRAM_FIELDS = [
+    ("time", "select", "select.deye_prog{n}_time"),
+    ("power", "number", "number.deye_prog{n}_power"),
+    ("capacity", "number", "number.deye_prog{n}_capacity"),
+    ("charge", "select", "select.deye_prog{n}_charge"),
+    ("mode", "select", "select.deye_prog{n}_mode"),
+    ("sell", "switch", "switch.deye_prog{n}_sell"),
+    ("voltage", "number", "number.deye_prog{n}_voltage"),
+]
+
+
+def _tou_time_sort_key(state):
+    try:
+        h, m = str(state).strip().split(":")[:2]
+        return int(h) * 60 + int(m)
+    except Exception:
+        return 10**9
+
+
+async def get_tou_programs():
+    entity_ids = []
+    for n in range(1, 7):
+        for _, _, tpl in TOU_PROGRAM_FIELDS:
+            entity_ids.append(tpl.format(n=n))
+    # fetch all in parallel
+    async with httpx.AsyncClient() as client:
+        async def fetch(eid):
+            if not HA_TOKEN:
+                return {"ok": False, "error": "No Supervisor token available", "entity_id": eid}
+            try:
+                r = await client.get(
+                    f"{HA_URL}/api/states/{eid}",
+                    headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+                    timeout=10.0,
+                )
+                if r.status_code == 404:
+                    return {"ok": False, "error": "Not found", "entity_id": eid}
+                if r.status_code >= 400:
+                    return {"ok": False, "error": f"HA API {r.status_code}", "entity_id": eid}
+                d = r.json(); a = d.get("attributes") or {}
+                return {"ok": True, "entity_id": d.get("entity_id", eid), "state": d.get("state"), "attributes": a}
+            except Exception as e:
+                return {"ok": False, "error": str(e), "entity_id": eid}
+        results = await asyncio.gather(*(fetch(eid) for eid in entity_ids))
+    by_eid = {r["entity_id"]: r for r in results}
+    programs = []
+    for n in range(1, 7):
+        fields = {}
+        for key, domain, tpl in TOU_PROGRAM_FIELDS:
+            eid = tpl.format(n=n)
+            st = by_eid.get(eid, {"ok": False, "error": "Missing", "entity_id": eid, "state": None, "attributes": {}})
+            attrs = st.get("attributes") or {}
+            fields[key] = {
+                "key": key, "domain": domain, "entity_id": eid,
+                "ok": st.get("ok"), "error": st.get("error"),
+                "state": st.get("state"), "attributes": attrs,
+                "options": attrs.get("options"),
+                "min": attrs.get("min"), "max": attrs.get("max"), "step": attrs.get("step"),
+                "unit": attrs.get("unit_of_measurement"),
+            }
+        time_state = (fields["time"].get("state") or "")
+        programs.append({"n": n, "time_state": time_state, "time_sort": _tou_time_sort_key(time_state), "fields": fields})
+    programs.sort(key=lambda p: (p["time_sort"], p["n"]))
+    return programs
+
+
 def get_last_applied():
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -314,6 +428,12 @@ async def index(request: Request):
     coverage_ok, coverage_error = _validate_24h_coverage(slots, require_enabled=True) if slots else (False, "No slots configured.")
     saved = request.query_params.get("saved")
     save_error = request.query_params.get("error")
+    tab = request.query_params.get("tab") or "export"
+    if tab not in ("export", "import"):
+        tab = "export"
+    tou_programs = await get_tou_programs()
+    import_saved = request.query_params.get("import_saved")
+    import_error = request.query_params.get("import_error")
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -331,6 +451,10 @@ async def index(request: Request):
         coverage_error=coverage_error,
         saved=saved,
         save_error=save_error,
+        tab=tab,
+        tou_programs=tou_programs,
+        import_saved=import_saved,
+        import_error=import_error,
     ))
 
 @app.post("/add_slot")
@@ -548,6 +672,65 @@ async def sync_from_inverter(request: Request):
     conn.close()
     root_path = request.scope.get("root_path", "")
     return RedirectResponse(url=f"{root_path}/", status_code=303)
+
+
+
+@app.post("/import/save_program/{n}")
+async def import_save_program(request: Request, n: int, time: str = Form(...), power: float = Form(...), capacity: float = Form(...), charge: str = Form(...), mode: str = Form(...), voltage: float = Form(...), sell: str = Form("off")):
+    root_path = request.scope.get("root_path", "")
+    from urllib.parse import quote
+    if n < 1 or n > 6:
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote('Invalid program.')}", status_code=303)
+    # fetch current attributes for validation where helpful
+    time_e = f"select.deye_prog{n}_time"
+    charge_e = f"select.deye_prog{n}_charge"
+    mode_e = f"select.deye_prog{n}_mode"
+    power_e = f"number.deye_prog{n}_power"
+    cap_e = f"number.deye_prog{n}_capacity"
+    volt_e = f"number.deye_prog{n}_voltage"
+    sell_e = f"switch.deye_prog{n}_sell"
+    states = await asyncio.gather(*(get_entity_state(e) for e in [time_e, charge_e, mode_e, power_e, cap_e, volt_e, sell_e]))
+    st_time, st_charge, st_mode, st_power, st_cap, st_volt, st_sell = states
+    def opts(st):
+        a = st.get("attributes") or {}; return a.get("options") or []
+    if st_time.get("ok") and opts(st_time) and time not in opts(st_time):
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid time option.')}", status_code=303)
+    if st_charge.get("ok") and opts(st_charge) and charge not in opts(st_charge):
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid charge option.')}", status_code=303)
+    if st_mode.get("ok") and opts(st_mode) and mode not in opts(st_mode):
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid mode option.')}", status_code=303)
+    def clamp(val, st, default_min=None, default_max=None):
+        a = st.get("attributes") or {}
+        mn = a.get("min", default_min); mx = a.get("max", default_max)
+        try:
+            v = float(val)
+            if mn is not None: v = max(float(mn), v)
+            if mx is not None: v = min(float(mx), v)
+            return v
+        except Exception:
+            return val
+    power_v = clamp(power, st_power)
+    cap_v = clamp(capacity, st_cap)
+    volt_v = clamp(voltage, st_volt)
+    sell_on = str(sell).lower() in ("on", "1", "true", "yes")
+    calls = [
+        ("select", "select_option", {"entity_id": time_e, "option": time}),
+        ("number", "set_value", {"entity_id": power_e, "value": power_v}),
+        ("number", "set_value", {"entity_id": cap_e, "value": cap_v}),
+        ("select", "select_option", {"entity_id": charge_e, "option": charge}),
+        ("select", "select_option", {"entity_id": mode_e, "option": mode}),
+        ("number", "set_value", {"entity_id": volt_e, "value": volt_v}),
+        ("switch", "turn_on" if sell_on else "turn_off", {"entity_id": sell_e}),
+    ]
+    errors = []
+    for dom, svc, payload in calls:
+        ok, err = await ha_call_service(dom, svc, payload)
+        if not ok:
+            errors.append(f"{payload['entity_id']}: {err}")
+    if errors:
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote('Sync errors: ' + '; '.join(errors)[:500])}", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=import&import_saved={n}", status_code=303)
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8099))
