@@ -15,7 +15,35 @@
                 Deye Export Manager
             </h1>
             <p class="text-gray-400 mt-2">Manage 24-hour export schedule for your Deye inverter</p>
+            <p class="text-gray-500 text-sm mt-1">Page loaded: {{ now_str }} (current time {{ mismatch.current_time if mismatch else '' }})</p>
         </header>
+
+        {% if mismatch %}
+        <div class="bg-amber-900/60 border border-amber-600 rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-2 flex items-center gap-2 text-amber-200">
+                <i class="mdi mdi-alert"></i>
+                Value mismatch — choose master
+            </h2>
+            <p class="text-amber-100 mb-1">{% if mismatch.startup_check %}Checked on first load after (re)start. {% endif %}Current time: <strong>{{ mismatch.current_time }}</strong></p>
+            <p class="mb-4">Inverter reports <strong>{{ "%.3f"|format(mismatch.inverter_kw) }} kW</strong>, but the app schedule expects <strong>{{ "%.3f"|format(mismatch.schedule_kw) }} kW</strong> now.{% if mismatch.active_slot %} (Active slot {{ mismatch.active_slot.start_time }}–{{ mismatch.active_slot.end_time }}){% else %} (No enabled slot covers this time; schedule defaults to 0 kW.){% endif %}</p>
+            <p class="text-sm text-amber-200 mb-4">Which value should be treated as the master? The other will be updated accordingly.</p>
+            <div class="flex flex-wrap gap-3">
+                <form action="{{ root_path }}/resolve_mismatch" method="post" class="inline">
+                    <input type="hidden" name="master" value="inverter">
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded font-medium transition">
+                        <i class="mdi mdi-download"></i> Use inverter value (update app schedule)
+                    </button>
+                </form>
+                <form action="{{ root_path }}/resolve_mismatch" method="post" class="inline">
+                    <input type="hidden" name="master" value="schedule">
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium transition">
+                        <i class="mdi mdi-upload"></i> Use schedule value (apply to inverter)
+                    </button>
+                </form>
+            </div>
+            <p class="text-xs text-amber-300 mt-3">“Use inverter value” updates the currently active slot (or creates a 00:00–23:59 baseline if no slot covers now). “Use schedule value” sends the expected schedule power to the inverter.</p>
+        </div>
+        {% endif %}
 
         <div class="bg-gray-800 rounded-lg p-6 mb-8">
             <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
@@ -28,13 +56,9 @@
                     <div class="font-mono break-all">{{ deye_entity }}</div>
                 </div>
                 <div class="bg-gray-700 rounded p-3">
-                    <div class="text-gray-400">Home Assistant API</div>
-                    <div class="font-mono break-all">{{ ha_url }}</div>
-                </div>
-                <div class="bg-gray-700 rounded p-3">
-                    <div class="text-gray-400">Entity state (live)</div>
+                    <div class="text-gray-400">Inverter (live, pulled from HA)</div>
                     {% if ha_status and ha_status.ok %}
-                        <div><span class="font-semibold">{{ ha_status.state }}</span>{% if ha_status.unit %} {{ ha_status.unit }}{% endif %}</div>
+                        <div><span class="font-semibold">{{ ha_status.state }}</span>{% if ha_status.unit %} {{ ha_status.unit }}{% endif %} {% if ha_status.power_kw is not none %}<span class="text-gray-400">({{ "%.3f"|format(ha_status.power_kw) }} kW)</span>{% endif %}</div>
                         {% if ha_status.friendly_name %}<div class="text-gray-400">{{ ha_status.friendly_name }}</div>{% endif %}
                         {% if ha_status.last_changed %}<div class="text-gray-500 text-xs">Last changed: {{ ha_status.last_changed }}</div>{% endif %}
                     {% else %}
@@ -42,11 +66,66 @@
                     {% endif %}
                 </div>
                 <div class="bg-gray-700 rounded p-3">
-                    <div class="text-gray-400">Existing schedule / last applied</div>
+                    <div class="text-gray-400">Schedule expected now</div>
+                    <div><span class="font-semibold">{{ "%.3f"|format(expected_kw) }} kW</span> at current time</div>
+                    {% if active_slot %}<div class="text-gray-400 text-xs">Active slot: {{ active_slot.start_time }}–{{ active_slot.end_time }} ({{ "%.2f"|format(active_slot.power_kw) }} kW)</div>{% else %}<div class="text-gray-400 text-xs">No enabled slot covers current time (defaults to 0 kW)</div>{% endif %}
+                </div>
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-gray-400">Database / last applied</div>
                     <div><span class="font-semibold">{{ slots|length }}</span> slot(s) stored</div>
                     <div>Last applied: {% if last_applied is not none %}{{ last_applied }} W{% else %}—{% endif %}</div>
                     <div class="text-gray-500 text-xs break-all">DB: {{ db_path }}</div>
+                    {% if slots|length == 0 %}
+                    <form action="{{ root_path }}/sync_from_inverter" method="post" class="mt-3">
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm font-medium transition">
+                            <i class="mdi mdi-download"></i> Create baseline schedule from current inverter value
+                        </button>
+                    </form>
+                    {% endif %}
                 </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                <i class="mdi mdi-table"></i>
+                Stored Configuration (Local Database)
+            </h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-gray-400 border-b border-gray-600">
+                        <tr>
+                            <th class="py-2 pr-3">ID</th>
+                            <th class="py-2 pr-3">Start</th>
+                            <th class="py-2 pr-3">End</th>
+                            <th class="py-2 pr-3">Power (kW)</th>
+                            <th class="py-2 pr-3">Enabled</th>
+                            <th class="py-2">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for slot in slots %}
+                        <tr class="border-b border-gray-700 {% if not slot.enabled %}opacity-50{% endif %}">
+                            <td class="py-2 pr-3 font-mono">{{ slot.id }}</td>
+                            <td class="py-2 pr-3 font-mono">{{ slot.start_time }}</td>
+                            <td class="py-2 pr-3 font-mono">{{ slot.end_time }}</td>
+                            <td class="py-2 pr-3 text-yellow-500 font-semibold">{{ "%.2f"|format(slot.power_kw) }}</td>
+                            <td class="py-2 pr-3">{{ 'Yes' if slot.enabled else 'No' }}</td>
+                            <td class="py-2">
+                                <form action="{{ root_path }}/toggle_slot/{{ slot.id }}" method="post" class="inline">
+                                    <button type="submit" class="p-1 hover:bg-gray-600 rounded" title="Toggle"><i class="mdi mdi-{{ 'power' if slot.enabled else 'power-off' }}"></i></button>
+                                </form>
+                                <form action="{{ root_path }}/delete_slot/{{ slot.id }}" method="post" class="inline">
+                                    <button type="submit" class="p-1 hover:bg-red-600 rounded" title="Delete"><i class="mdi mdi-delete"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not slots %}
+                        <tr><td colspan="6" class="py-4 text-center text-gray-400">No configuration stored in local database.</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -77,54 +156,16 @@
 
             <div class="bg-gray-800 rounded-lg p-6">
                 <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <i class="mdi mdi-clock-outline"></i>
-                    24-Hour Timeline / Existing Slots
+                    <i class="mdi mdi-refresh"></i>
+                    Actions
                 </h2>
-                <div class="space-y-2 max-h-64 overflow-y-auto">
-                    {% for slot in slots %}
-                    <div class="flex items-center justify-between p-3 {% if slot.enabled %}bg-gray-700{% else %}bg-gray-700 opacity-50{% endif %} rounded">
-                        <div class="flex items-center gap-3">
-                            <span class="font-mono">{{ slot.start_time }} - {{ slot.end_time }}</span>
-                            <span class="text-yellow-500 font-semibold">{{ "%.2f"|format(slot.power_kw) }} kW</span>
-                        </div>
-                        <div class="flex gap-2">
-                            <form action="{{ root_path }}/toggle_slot/{{ slot.id }}" method="post" class="inline">
-                                <button type="submit" class="p-1 hover:bg-gray-600 rounded" title="Toggle">
-                                    <i class="mdi mdi-{{ 'power' if slot.enabled else 'power-off' }}"></i>
-                                </button>
-                            </form>
-                            <form action="{{ root_path }}/delete_slot/{{ slot.id }}" method="post" class="inline">
-                                <button type="submit" class="p-1 hover:bg-red-600 rounded" title="Delete">
-                                    <i class="mdi mdi-delete"></i>
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                    {% endfor %}
-                    {% if not slots %}
-                    <p class="text-gray-400 text-center py-4">No time slots added yet (or none stored in this add-on's database).</p>
-                    {% endif %}
-                </div>
-                <form action="{{ root_path }}/api/apply_now" method="post" class="mt-4">
+                <p class="text-gray-400 text-sm mb-4">On each load (and first load after restart) the app pulls the inverter value and compares it to the schedule expected now. If they differ, you’ll be asked which value is the master.</p>
+                <form action="{{ root_path }}/api/apply_now" method="post">
                     <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium transition">
-                        <i class="mdi mdi-refresh"></i> Apply to Inverter Now
+                        <i class="mdi mdi-upload"></i> Apply Schedule to Inverter Now
                     </button>
                 </form>
             </div>
-        </div>
-
-        <div class="bg-gray-800 rounded-lg p-6">
-            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
-                <i class="mdi mdi-information"></i>
-                Instructions
-            </h2>
-            <ul class="space-y-2 text-gray-300">
-                <li>• Existing slots (if any) are loaded from this add-on’s database and shown in the timeline/status above.</li>
-                <li>• Add time slots for when you want to export power to the grid (0–16 kW, 0.01 kW precision).</li>
-                <li>• The scheduler checks every minute and applies the correct setting to your Deye inverter.</li>
-                <li>• Make sure time slots don’t overlap; use toggle to enable/disable without deleting.</li>
-                <li>• If you previously used the standalone app, its data was stored separately; re-add slots here or ask to import if you need migration.</li>
-            </ul>
         </div>
     </div>
 </body>

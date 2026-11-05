@@ -14,6 +14,8 @@ import httpx
 
 app = FastAPI(title="Deye Export Manager")
 
+STARTUP_CHECK_DONE = False
+
 
 @app.middleware("http")
 async def ingress_root_path(request: Request, call_next):
@@ -86,6 +88,20 @@ async def apply_to_ha(power_watts: int):
         return False
 
 
+def _watts_to_kw_state(val, unit):
+    try:
+        v = float(val)
+    except Exception:
+        return None
+    unit = (unit or "").lower()
+    if "kw" in unit:
+        return round(v, 3)
+    # if unit is W or unknown but large, assume watts
+    if "w" in unit or abs(v) >= 50:
+        return round(v / 1000.0, 3)
+    return round(v, 3)
+
+
 async def get_ha_entity_state():
     if not HA_TOKEN:
         return {"ok": False, "error": "No Supervisor token available"}
@@ -102,10 +118,12 @@ async def get_ha_entity_state():
                 return {"ok": False, "error": f"HA API error {response.status_code}"}
             data = response.json()
             attrs = data.get("attributes") or {}
+            kw = _watts_to_kw_state(data.get("state"), attrs.get("unit_of_measurement"))
             return {
                 "ok": True,
                 "entity_id": data.get("entity_id", DEYE_ENTITY),
                 "state": data.get("state"),
+                "power_kw": kw,
                 "friendly_name": attrs.get("friendly_name"),
                 "unit": attrs.get("unit_of_measurement"),
                 "min": attrs.get("min"),
@@ -128,6 +146,27 @@ def get_last_applied():
     except Exception:
         return None
 
+
+def get_slots():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM schedule_slots ORDER BY start_time")
+    rows = c.fetchall()
+    slots = [dict(row) for row in rows]
+    conn.close()
+    return slots
+
+
+def expected_power_now(slots, now=None):
+    now = now or datetime.now()
+    current_time = now.strftime("%H:%M")
+    for slot in slots:
+        if slot.get("enabled") and slot["start_time"] <= current_time < slot["end_time"]:
+            return float(slot["power_kw"]), slot
+    return 0.0, None
+
+
 def check_and_apply_schedule():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -135,13 +174,13 @@ def check_and_apply_schedule():
     now = datetime.now()
     current_time = now.strftime("%H:%M")
 
-    c.execute("SELECT * FROM schedule_slots WHERE enabled=1")
+    c.execute("SELECT * FROM schedule_slots WHERE enabled=1 ORDER BY start_time")
     slots = c.fetchall()
 
     active_power = 0
     for slot in slots:
         if slot["start_time"] <= current_time < slot["end_time"]:
-            active_power = int(slot["power_kw"] * 1000)
+            active_power = int(float(slot["power_kw"]) * 1000)
             break
 
     c.execute("SELECT value FROM settings WHERE key='last_applied'")
@@ -161,19 +200,27 @@ scheduler.start()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM schedule_slots ORDER BY start_time")
-    rows = c.fetchall()
-    slots = []
-    for row in rows:
-        slots.append({"id": row["id"], "start_time": row["start_time"], "end_time": row["end_time"], "power_kw": row["power_kw"], "enabled": row["enabled"]})
-    conn.close()
+    global STARTUP_CHECK_DONE
+    slots = get_slots()
     template = env.get_template("index.html")
     root_path = request.scope.get("root_path", "")
     ha_status = await get_ha_entity_state()
     last_applied = get_last_applied()
+    expected_kw, active_slot = expected_power_now(slots)
+    now = datetime.now()
+    mismatch = None
+    # Show mismatch prompt on first load after restart, or whenever values differ (clear and actionable)
+    if ha_status.get("ok") and ha_status.get("power_kw") is not None:
+        inv_kw = float(ha_status["power_kw"])
+        if abs(inv_kw - expected_kw) > 0.011:
+            mismatch = {
+                "inverter_kw": round(inv_kw, 3),
+                "schedule_kw": round(expected_kw, 3),
+                "current_time": now.strftime("%H:%M"),
+                "active_slot": active_slot,
+                "startup_check": not STARTUP_CHECK_DONE,
+            }
+    STARTUP_CHECK_DONE = True
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -183,6 +230,10 @@ async def index(request: Request):
         ha_url=HA_URL,
         last_applied=last_applied,
         db_path=DB_PATH,
+        expected_kw=round(expected_kw, 3),
+        active_slot=active_slot,
+        mismatch=mismatch,
+        now_str=now.strftime("%Y-%m-%d %H:%M:%S"),
     ))
 
 @app.post("/add_slot")
@@ -221,28 +272,91 @@ async def toggle_slot(request: Request, slot_id: int):
 
 @app.get("/api/slots")
 async def api_slots():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM schedule_slots ORDER BY start_time")
-    slots = [dict(row) for row in c.fetchall()]
-    conn.close()
+    slots = get_slots()
     return JSONResponse(slots)
+
+
+@app.post("/resolve_mismatch")
+async def resolve_mismatch(request: Request, master: str = Form(...)):
+    root_path = request.scope.get("root_path", "")
+    slots = get_slots()
+    ha_status = await get_ha_entity_state()
+    expected_kw, active_slot = expected_power_now(slots)
+    if master == "schedule":
+        watts = int(round(expected_kw * 1000))
+        await apply_to_ha(watts)
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_applied', ?)", (str(watts),))
+        conn.commit()
+        conn.close()
+    elif master == "inverter":
+        if not (ha_status.get("ok") and ha_status.get("power_kw") is not None):
+            return RedirectResponse(url=f"{root_path}/", status_code=303)
+        inv_kw = max(0.0, min(16.0, round(float(ha_status["power_kw"]), 2)))
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM schedule_slots WHERE enabled=1 ORDER BY start_time")
+        enabled = c.fetchall()
+        now = datetime.now().strftime("%H:%M")
+        covered = next((s for s in enabled if s["start_time"] <= now < s["end_time"]), None)
+        if covered:
+            c.execute("UPDATE schedule_slots SET power_kw=? WHERE id=?", (inv_kw, covered["id"]))
+        else:
+            c.execute("INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES ('00:00','23:59',?,1)", (inv_kw,))
+        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_applied', ?)", (str(int(round(inv_kw * 1000))),))
+        conn.commit()
+        conn.close()
+    return RedirectResponse(url=f"{root_path}/", status_code=303)
+
 
 @app.get("/api/status")
 async def api_status():
+    slots = get_slots()
     ha_status = await get_ha_entity_state()
+    expected_kw, active_slot = expected_power_now(slots)
     return JSONResponse({
         "deye_entity": DEYE_ENTITY,
         "ha_url": HA_URL,
         "ha_status": ha_status,
         "last_applied_watts": get_last_applied(),
+        "expected_kw_now": expected_kw,
+        "active_slot": active_slot,
+        "slots_count": len(slots),
         "db_path": DB_PATH,
     })
+
 
 @app.post("/api/apply_now")
 async def api_apply_now(request: Request):
     check_and_apply_schedule()
+    root_path = request.scope.get("root_path", "")
+    return RedirectResponse(url=f"{root_path}/", status_code=303)
+
+
+@app.post("/sync_from_inverter")
+async def sync_from_inverter(request: Request):
+    """If no slots exist, create a 00:00-23:59 baseline slot from current inverter power."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) as n FROM schedule_slots")
+    n = c.fetchone()["n"]
+    if n == 0:
+        ha = await get_ha_entity_state()
+        power_kw = 0.0
+        if ha and ha.get("ok") and ha.get("power_kw") is not None:
+            try:
+                power_kw = max(0.0, min(16.0, round(float(ha["power_kw"]), 2)))
+            except Exception:
+                power_kw = 0.0
+        c.execute(
+            "INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES (?, ?, ?, 1)",
+            ("00:00", "23:59", power_kw),
+        )
+        conn.commit()
+    conn.close()
     root_path = request.scope.get("root_path", "")
     return RedirectResponse(url=f"{root_path}/", status_code=303)
 
