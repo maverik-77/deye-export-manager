@@ -1,170 +1,187 @@
 # Deye Export Manager (Home Assistant Add-on)
 
-Custom Home Assistant add-on/app for managing a **24-hour export schedule** for a Deye inverter by controlling a Home Assistant `number` entity (default: `number.deye_max_sell_power`). It provides an **ingress UI** in the Home Assistant sidebar for viewing live inverter state, stored schedule slots, mismatch resolution, and direct updates.
+Custom Home Assistant add-on for managing a **24-hour export-power schedule** for a Deye inverter. It controls a Home Assistant `number` entity (default: `number.deye_max_sell_power`) through the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar.
 
-> **Core scheduling is handled by the add-on itself.** You do **not** need Home Assistant YAML automations for the basic schedule/apply loop to work, as long as the add-on is running, has Home Assistant API access, and the configured entity is correct.
+## Required Home Assistant automations: **NONE**
 
-## Repository
+**You do not need to create any Home Assistant automations for this add-on to work.**  
+Core scheduling and applying values to the inverter are handled by the add-on itself (checks every minute, plus **Apply schedule to inverter now** in the UI), as long as:
 
-Add this repository in Home Assistant:
-**Settings → Apps → ⋮ → Repositories → Add**  
-`https://github.com/maverik-77/deye-export-manager`
+- the add-on is installed, configured, and **running**;
+- Home Assistant API access is available to the add-on (it uses `homeassistant_api` / Supervisor token);
+- `deye_entity` points to the correct, working Home Assistant entity for your inverter.
 
-## Features
+The [Optional Home Assistant automations](#optional-home-assistant-automations-not-required) section below contains **optional** examples only (notifications/safety). They are not required for setup.
 
-- 24-hour schedule with multiple time slots (ordered by start time)
-- Add/delete slots; edit all rows in the table and use a **single “Save schedule”** action
-- Export power entry in **Watts** in the UI (0–16000 W, internally converted as needed; stored with kW precision)
-- Stores schedules in the add-on’s local SQLite database (`/data/schedules.db` inside the add-on)
-- Pulls **live inverter value** from Home Assistant on page load / after restart
-- Compares inverter value vs. **schedule expected now** and prompts you to choose a **master** when they differ
-- Applies the correct power based on the current time (scheduler checks every minute) and via **Apply Schedule to Inverter Now**
-- Home Assistant **ingress** UI (no host port mapping required)
+## What it does
+
+- 24-hour schedule managed in the add-on UI (ingress; no host port mapping).
+- Stores schedule in the add-on’s local SQLite DB (`/data/schedules.db` inside the add-on container).
+- **Add rows in the table**, edit values, drag rows to rearrange the view, then click **Save schedule** (one action). New rows are created on save; existing rows are updated.
+- Power is entered in **Watts** in the UI (`0–16000 W`) and converted/stored internally as needed.
+- **Save validation:** enabled slots must cover the full day continuously with **no gaps/overlaps** (`00:00`–24:00). Use `00:00` as end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot.
+- Pulls **live inverter value** from Home Assistant on page load / after restart, compares with the **schedule expected now**, and prompts you to choose **master** (inverter or schedule) if they differ.
+- Applies the expected power automatically when the schedule changes (checked every minute) and via **Apply Schedule to Inverter Now**.
+- Table display reloads ordered by **start time** (longer duration first when start times match). Schedule logic is time-based.
 
 ## Prerequisites
 
-- Home Assistant OS / Supervised environment with **Apps/Add-ons** (Supervisor)
-- A working Home Assistant entity that controls Deye max export/sell power (commonly a `number.*` entity exposed by your Deye/Solarman integration)
-- The entity must accept the value format your integration expects (the add-on sends watts as an integer to `number.set_value`; UI shows kW; verify your integration’s units/scale)
+1. **Home Assistant OS / Supervised** with **Apps** (Add-ons/Supervisor).
+2. An integration that exposes your Deye inverter’s **max export/sell power** as a controllable Home Assistant entity (commonly a `number.*` entity; the exact entity ID depends on your integration, e.g. Solarman/SolarmanPV/Deye-related integrations).
+3. You can find and control that entity in Home Assistant:
+   - Go to **Settings → Devices & services → Entities** or **Developer Tools → States**.
+   - Search for terms like `deye`, `sell`, `export`, `max`.
+   - Confirm the entity you choose can be set (e.g. `number.set_value` works / the value changes as expected). **Back up/verify before relying on it** — integrations differ in units and accepted ranges.
+
+> **Units/scale:** The add-on sends watts (integer) to `number.set_value` and the UI uses Watts. Some integrations expect different units/scales. Verify with a small manual test in **Developer Tools → Services/Actions** before using scheduled control.
 
 ## Installation
 
-1. Add the repository URL above in **Settings → Apps → ⋮ → Repositories**.
-2. **⋮ → Check for updates** / reload if needed.
-3. Install **Deye Export Manager**.
-4. Open add-on **Configuration** and set:
-   - `deye_entity`: your export power control entity (default `number.deye_max_sell_power`)
-5. Start the add-on and check **Logs** for errors.
-6. Enable **Show in sidebar** (ingress panel: *Deye Export*).
+1. In Home Assistant, open **Settings → Apps → ⋮ (top-right) → Repositories**.
+2. Click **Add**, paste the repository URL, then add/close:
+   ```text
+   https://github.com/maverik-77/deye-export-manager
+   ```
+3. Go back to the Apps/add-on store view, click **⋮ → Check for updates** / reload if needed, then find and install **Deye Export Manager**.
+4. Open the add-on page → **Configuration** tab and set:
+   - `deye_entity`: the exact Home Assistant entity ID to control (default `number.deye_max_sell_power`). Replace with your real entity if different.
+5. Save configuration, **Start** the add-on, and open the **Log** tab. Confirm there are no startup/API errors.
+6. Enable **Show in sidebar** (or open via the add-on’s ingress/Open Web UI). The panel title is **Deye Export**.
 
-## Configuration
+## Using the UI
+
+1. **Status panel:** shows configured entity, live inverter value (pulled from HA), schedule expected now, DB/last applied, and coverage status.
+2. **Mismatch prompt:** if inverter value differs from the schedule expected now, choose:
+   - **Use inverter value (update app schedule):** updates the currently active slot or creates an all-day baseline in the add-on DB.
+   - **Use schedule value (apply to inverter):** sends the schedule’s expected power to the inverter.
+3. **Stored Configuration table:**
+   - **Add row:** adds an unsaved row in the table. **Remove** (unsaved rows) removes it client-side.
+   - **Delete** (saved rows): deletes immediately from the add-on DB.
+   - **Drag** handle: rearranges rows for viewing/editing (visual only; schedule is time-based and reloads ordered by start time).
+   - Edit Start/End/Power (W)/Enabled, then click **Save schedule**.
+4. **Save validation:** enabled slots must form a complete 24-hour partition (00:00–24:00, contiguous, no overlaps). If validation fails, an error is shown and the page reloads from the DB (unsaved edits/new rows from that attempt are not kept).
+5. **Apply schedule to inverter now** (in the table controls): applies the currently expected schedule value immediately (if different from last applied).
+
+## Time & coverage rules
+
+- Times are `HH:MM`. A slot matches when `start <= current time < end`.
+- **Midnight end:** use `00:00` as the end time (e.g. `22:00–00:00`).
+- **All day:** `00:00–00:00`.
+- **No enabled slot covering current time:** runtime applies `0 W`. With a valid saved schedule (full 24h coverage), this should not happen.
+- Scheduling uses the add-on/container’s local time (`datetime.now()`). Ensure your system/add-on timezone matches your intended schedule.
+
+## Configuration option
 
 | Option | Description | Default |
 |---|---|---|
 | `deye_entity` | Home Assistant entity ID used with `number.set_value` | `number.deye_max_sell_power` |
 
-The add-on uses Supervisor/Home Assistant API access (`homeassistant_api: true`, `SUPERVISOR_TOKEN`) and ingress.
+## Optional Home Assistant automations (NOT required)
 
-## How it works
+These are **optional** only. The add-on works without them. Add them only if you want extra notifications/safety. **Adapt entity IDs, notify services, units, thresholds, and test carefully.** A safety automation that also controls the same entity can conflict with the add-on—prefer one source of truth unless you have a specific reason.
 
-- **Schedule slots** are stored in the add-on database. For the current local time, the add-on finds the first enabled slot where `start_time <= now < end_time` and applies that power (kW → W). If no enabled slot covers the current time, it applies **0 W** (verify this matches your intent).
-- **Page load / restart:** the UI pulls the inverter’s live state and compares it with the schedule’s expected value *now*. If different, it asks whether **inverter** or **schedule** is master and updates the other accordingly.
-- **Apply Schedule to Inverter Now:** computes the currently expected value and applies it if needed.
+### How to add an optional automation
 
-## Optional Home Assistant automations
+- **UI (recommended for most users):** **Settings → Automations & scenes → Create automation → Create new automation**. Add the matching trigger/condition/action. Replace `number.deye_max_sell_power` with your `deye_entity`, and replace `notify.notify` with your real notify service (e.g. a mobile app notify service or `persistent_notification.create` action pattern as appropriate in your HA version/UI).
+- **YAML:** If you manage automations in `automations.yaml` (UI-managed automations file), add the automation entry there *carefully* (it must remain valid and keep existing automations). If you use a YAML automation include under `configuration.yaml`, follow your existing structure. After YAML changes, validate config and reload automations / restart as needed.
 
-The add-on handles the main schedule. The automations below are **optional** examples for safety, visibility, and coordination. **Review, adapt entity IDs, and test carefully** before enabling. Use Home Assistant’s automation editor or YAML; validate configuration changes before reloading/restarting.
-
-### 1) Notify if the export-control entity becomes unavailable
-Useful if the inverter/integration drops offline.
-
+### 1) Optional: notify if the control entity becomes unavailable
 ```yaml
-automation:
-  - alias: "Deye Export: notify when control entity unavailable"
-    id: deye_export_notify_entity_unavailable
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: number.deye_max_sell_power  # change to your configured deye_entity
-        to:
-          - "unavailable"
-          - "unknown"
-        for: "00:05:00"
-    action:
-      - service: notify.notify  # change to your notify service (mobile_app_*, persistent_notification, etc.)
-        data:
-          title: "Deye Export Manager"
-          message: >-
-            Export control entity {{ trigger.entity_id }} is {{ states(trigger.entity_id) }}.
-            The Deye Export Manager add-on may not be able to apply schedules.
+alias: "Deye Export: notify when control entity unavailable"
+id: deye_export_notify_entity_unavailable
+mode: single
+trigger:
+  - platform: state
+    entity_id: number.deye_max_sell_power  # CHANGE to your configured deye_entity
+    to:
+      - "unavailable"
+      - "unknown"
+    for: "00:05:00"
+action:
+  - service: notify.notify  # CHANGE to your notify service
+    data:
+      title: "Deye Export Manager"
+      message: >-
+        Export control entity {{ trigger.entity_id }} is {{ states(trigger.entity_id) }}.
+        The Deye Export Manager add-on may not be able to apply schedules.
 ```
 
-### 2) Safety clamp / guardrail (optional)
-Only use if you understand your inverter/integration limits. This can conflict with the add-on if both try to control the same entity; prefer **one source of truth** (the add-on) unless you have a specific safety need.
+### 2) Optional: safety clamp (use with caution)
+Can conflict with add-on control. Only use if you understand your inverter limits and entity units.
 
 ```yaml
-automation:
-  - alias: "Deye Export: safety clamp max export"
-    id: deye_export_safety_clamp
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: number.deye_max_sell_power  # change if needed
-    condition:
-      - condition: template
-        value_template: >-
-          {{ states('number.deye_max_sell_power') not in ['unknown','unavailable']
-             and (states('number.deye_max_sell_power') | float(0)) > 16000 }}
-    action:
-      - service: number.set_value
-        target:
-          entity_id: number.deye_max_sell_power
-        data:
-          value: 16000  # adjust to your safe maximum (units must match the entity!)
-      - service: notify.notify
-        data:
-          title: "Deye Export Manager safety"
-          message: "Export limit exceeded threshold; clamped to safe maximum. Check add-on schedule and inverter state."
+alias: "Deye Export: safety clamp max export"
+id: deye_export_safety_clamp
+mode: single
+trigger:
+  - platform: state
+    entity_id: number.deye_max_sell_power  # CHANGE if needed
+condition:
+  - condition: template
+    value_template: >-
+      {{ states('number.deye_max_sell_power') not in ['unknown','unavailable']
+         and (states('number.deye_max_sell_power') | float(0)) > 16000 }}
+action:
+  - service: number.set_value
+    target:
+      entity_id: number.deye_max_sell_power
+    data:
+      value: 16000  # CHANGE: safe max; units must match the entity
+  - service: notify.notify  # CHANGE to your notify service
+    data:
+      title: "Deye Export Manager safety"
+      message: "Export limit exceeded threshold; clamped. Check schedule/inverter state."
 ```
 
-### 3) Notify when export power is changed manually outside the expected schedule
-This helps detect overrides. It compares the entity value to a simple expectation; for precise comparison use a template/sensor that mirrors the add-on’s current-time logic, or rely on the add-on UI mismatch prompt.
+### 3) Optional: notify on manual/any export-power change
+Can be noisy. Useful for awareness; the UI also shows mismatches on load.
 
 ```yaml
-automation:
-  - alias: "Deye Export: notify on manual export change"
-    id: deye_export_notify_manual_change
-    mode: queued
-    trigger:
-      - platform: state
-        entity_id: number.deye_max_sell_power  # change if needed
-    condition:
-      - condition: template
-        value_template: "{{ trigger.from_state is not none and trigger.to_state is not none }}"
-      - condition: template
-        value_template: "{{ trigger.to_state.state not in ['unknown','unavailable'] }}"
-    action:
-      - service: notify.notify  # optional; can be noisy
-        data:
-          title: "Deye export power changed"
-          message: >-
-            {{ trigger.entity_id }} changed from {{ trigger.from_state.state }} to {{ trigger.to_state.state }}.
-            If unexpected, open Deye Export Manager to check for schedule/inverter mismatch.
+alias: "Deye Export: notify on export power change"
+id: deye_export_notify_manual_change
+mode: queued
+trigger:
+  - platform: state
+    entity_id: number.deye_max_sell_power  # CHANGE if needed
+condition:
+  - condition: template
+    value_template: "{{ trigger.from_state is not none and trigger.to_state is not none }}"
+  - condition: template
+    value_template: "{{ trigger.to_state.state not in ['unknown','unavailable'] }}"
+action:
+  - service: notify.notify  # CHANGE to your notify service (optional; can be noisy)
+    data:
+      title: "Deye export power changed"
+      message: >-
+        {{ trigger.entity_id }} changed from {{ trigger.from_state.state }} to {{ trigger.to_state.state }}.
+        If unexpected, open Deye Export Manager and check for schedule/inverter mismatch.
 ```
 
-### 4) Daily reminder to review schedule (optional)
+### 4) Optional: daily review reminder
 ```yaml
-automation:
-  - alias: "Deye Export: daily schedule review reminder"
-    id: deye_export_daily_review
-    mode: single
-    trigger:
-      - platform: time
-        at: "08:00:00"
-    action:
-      - service: notify.notify
-        data:
-          title: "Deye Export Manager"
-          message: "Optional reminder: review your Deye export schedule if tariffs/plans changed."
+alias: "Deye Export: daily schedule review reminder"
+id: deye_export_daily_review
+mode: single
+trigger:
+  - platform: time
+    at: "08:00:00"
+action:
+  - service: notify.notify  # CHANGE to your notify service
+    data:
+      title: "Deye Export Manager"
+      message: "Optional reminder: review your Deye export schedule if tariffs/plans changed."
 ```
-
-### 5) Re-apply/refresh helper via HA (usually unnecessary)
-The add-on applies on its own schedule and provides an **Apply Schedule to Inverter Now** button. If you specifically need HA to nudge behavior, prefer using the add-on UI/API only if you expose it intentionally; do not assume internal unauthenticated endpoints. In most setups, **no automation is required**.
-
-## Important notes
-
-- **Full 24-hour coverage required on save:** when you click **Save schedule**, enabled slots must cover the entire day continuously with no gaps/overlaps (`00:00`–24:00). Use `00:00` as an end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot. Gaps can exist temporarily while editing/adding/deleting, but saving enforces a complete schedule; runtime applies **0 W** only if no enabled slot matches (should not occur for a valid saved schedule).
-- **Entity units/scale:** integrations differ (W vs kW, different ranges). Confirm that values applied by the add-on match what your Deye/integration expects.
-- **Add-on database is separate** from any old standalone app data; schedules won’t auto-import.
-- **After updates:** HA may require **Check for updates**, add-on rebuild/update, and restart. If UI/API behavior seems stale, confirm the running version in add-on info/logs.
 
 ## Troubleshooting
 
-- **UI shows entity error/not found:** verify `deye_entity` in add-on config and that the entity exists in **Developer Tools → States**.
-- **Apply fails / 500 / no effect:** check add-on **Logs**; confirm Supervisor API access and entity accepts `number.set_value`.
-- **Mismatch prompt appears:** choose the correct master (*inverter* updates the active slot/baseline in the app DB; *schedule* pushes the expected value to the inverter).
-- **Changes not taking effect after update:** ensure HA pulled the latest add-on version (v1.0.7+ includes the async `apply_now` fix), then rebuild/restart the add-on.
+- **Entity error/not found:** check `deye_entity` in add-on Configuration and confirm it exists in **Developer Tools → States**.
+- **Schedule not applying:** check add-on **Log**; verify add-on is running, entity is controllable, and units/scale are correct. Use **Apply schedule to inverter now** to test.
+- **Save failed / coverage error:** enabled slots must cover 00:00–24:00 with no gaps/overlaps. Use `00:00` end for midnight; for a final-minute issue, end the last slot at `00:00`.
+- **Mismatch prompt:** choose the correct master after reviewing live inverter vs. expected schedule.
+- **After updating add-on:** **Check for updates**, rebuild/update, restart, and hard-refresh the ingress UI if it looks stale.
+- **Separate data:** old standalone app data is not auto-imported into the add-on’s `/data/schedules.db`.
 
-## Development
+## Repository / development
 
-Source in this repo under `deye_export_manager/`. Key files: `config.yaml`, `build.yaml`, `Dockerfile`, `run.sh`, `main.py`, `templates/index.html`.
+Repository: `https://github.com/maverik-77/deye-export-manager`  
+Source: `deye_export_manager/` (`config.yaml`, `build.yaml`, `Dockerfile`, `run.sh`, `main.py`, `templates/index.html`).
