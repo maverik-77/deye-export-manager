@@ -317,14 +317,15 @@ async def index(request: Request):
     ))
 
 @app.post("/add_slot")
-async def add_slot(request: Request, start_time: str = Form(...), end_time: str = Form(...), power_kw: float = Form(...)):
+async def add_slot(request: Request, start_time: str = Form(...), end_time: str = Form(...), power_w: float = Form(...)):
     try:
         s_min, e_min = _slot_interval(start_time, end_time)
         if e_min <= s_min:
             raise ValueError()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid time range. Use HH:MM; for midnight end use 00:00.")
-    power_kw = max(0.0, min(16.0, float(power_kw)))
+    power_w = max(0.0, min(16000.0, float(power_w)))
+    power_kw = round(power_w / 1000.0, 3)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("INSERT INTO schedule_slots (start_time, end_time, power_kw) VALUES (?, ?, ?)",
@@ -356,14 +357,15 @@ async def toggle_slot(request: Request, slot_id: int):
 
 
 @app.post("/update_slot/{slot_id}")
-async def update_slot(request: Request, slot_id: int, start_time: str = Form(...), end_time: str = Form(...), power_kw: float = Form(...), enabled: str = Form(None)):
+async def update_slot(request: Request, slot_id: int, start_time: str = Form(...), end_time: str = Form(...), power_w: float = Form(...), enabled: str = Form(None)):
     try:
         s_min, e_min = _slot_interval(start_time, end_time)
         if e_min <= s_min:
             raise ValueError()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid time range. Use HH:MM; for midnight end use 00:00.")
-    power_kw = max(0.0, min(16.0, float(power_kw)))
+    power_w = max(0.0, min(16000.0, float(power_w)))
+    power_kw = round(power_w / 1000.0, 3)
     en = 1 if enabled is not None else 0
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -383,7 +385,9 @@ async def save_slots(request: Request):
     ids = form.getlist("id")
     starts = form.getlist("start_time")
     ends = form.getlist("end_time")
-    powers = form.getlist("power_kw")
+    powers = form.getlist("power_w")
+    if not powers:
+        powers = form.getlist("power_kw")  # fallback
     enableds = form.getlist("enabled")
     if not (len(ids) == len(starts) == len(ends) == len(powers) == len(enableds)):
         from urllib.parse import quote
@@ -395,7 +399,7 @@ async def save_slots(request: Request):
                 "id": int(sid),
                 "start_time": str(starts[i]),
                 "end_time": str(ends[i]),
-                "power_kw": float(powers[i]),
+                "power_kw": round(max(0.0, min(16000.0, float(powers[i]))) / 1000.0, 3),
                 "enabled": 1 if str(enableds[i]) in ("1", "true", "True", "on", "yes") else 0,
             }
         except Exception:

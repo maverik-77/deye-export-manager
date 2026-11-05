@@ -14,7 +14,7 @@ Add this repository in Home Assistant:
 
 - 24-hour schedule with multiple time slots (ordered by start time)
 - Add/delete slots; edit all rows in the table and use a **single “Save schedule”** action
-- Export power with fine precision (UI supports `0–16 kW`, `0.01 kW` step)
+- Export power entry in **Watts** in the UI (0–16000 W, internally converted as needed; stored with kW precision)
 - Stores schedules in the add-on’s local SQLite database (`/data/schedules.db` inside the add-on)
 - Pulls **live inverter value** from Home Assistant on page load / after restart
 - Compares inverter value vs. **schedule expected now** and prompts you to choose a **master** when they differ
