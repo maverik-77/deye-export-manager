@@ -46,6 +46,14 @@
                     <div><span class="font-semibold">{{ slots|length }}</span> slot(s) stored</div>
                     <div>Last applied: {% if last_applied is not none %}{{ last_applied }} W{% else %}—{% endif %}</div>
                     <div class="text-gray-500 text-xs break-all">DB: {{ db_path }}</div>
+                    {% if slots|length == 0 %}
+                    <form action="{{ root_path }}/sync_from_inverter" method="post" class="mt-3">
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm font-medium transition">
+                            <i class="mdi mdi-download"></i> Create baseline schedule from current inverter value
+                        </button>
+                    </form>
+                    <p class="text-gray-400 text-xs mt-1">Creates one 00:00–23:59 slot using the inverter’s current power (only when no slots exist).</p>
+                    {% endif %}
                 </div>
             </div>
         </div>

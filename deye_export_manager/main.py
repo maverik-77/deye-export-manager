@@ -246,6 +246,40 @@ async def api_apply_now(request: Request):
     root_path = request.scope.get("root_path", "")
     return RedirectResponse(url=f"{root_path}/", status_code=303)
 
+
+@app.post("/sync_from_inverter")
+async def sync_from_inverter(request: Request):
+    """If no slots exist, create a 00:00-23:59 baseline slot from current inverter power."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) as n FROM schedule_slots")
+    n = c.fetchone()["n"]
+    if n == 0:
+        ha = await get_ha_entity_state()
+        power_kw = 0.0
+        if ha and ha.get("ok") and ha.get("state") is not None:
+            try:
+                # entity may report W or kW depending on integration; treat numeric as W if >= 50 else kW
+                val = float(ha["state"])
+                unit = (ha.get("unit") or "").lower()
+                if "kw" in unit:
+                    power_kw = val
+                elif "w" in unit or val >= 50:
+                    power_kw = round(val / 1000.0, 2)
+                else:
+                    power_kw = round(val, 2)
+            except Exception:
+                power_kw = 0.0
+        c.execute(
+            "INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES (?, ?, ?, 1)",
+            ("00:00", "23:59", max(0.0, min(16.0, power_kw))),
+        )
+        conn.commit()
+    conn.close()
+    root_path = request.scope.get("root_path", "")
+    return RedirectResponse(url=f"{root_path}/", status_code=303)
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8099))
     uvicorn.run(app, host="0.0.0.0", port=port)
