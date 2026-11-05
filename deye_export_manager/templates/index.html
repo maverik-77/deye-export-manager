@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deye Export Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/css/materialdesignicons.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold flex items-center gap-2">
+                <i class="mdi mdi-transmission-tower-export text-yellow-500"></i>
+                Deye Export Manager
+            </h1>
+            <p class="text-gray-400 mt-2">Manage 24-hour export schedule for your Deye inverter</p>
+        </header>
+
+        <div class="grid md:grid-cols-2 gap-6 mb-8">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <i class="mdi mdi-plus-circle"></i>
+                    Add Time Slot
+                </h2>
+                <form action="{{ root_path }}/add_slot" method="post" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">From Time</label>
+                        <input type="time" name="start_time" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">To Time</label>
+                        <input type="time" name="end_time" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Export Power (kW)</label>
+                        <input type="number" name="power_kw" step="0.01" min="0" max="16" placeholder="e.g., 2.35" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                    </div>
+                    <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded font-medium transition">
+                        <i class="mdi mdi-plus"></i> Add Slot
+                    </button>
+                </form>
+            </div>
+
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <i class="mdi mdi-clock-outline"></i>
+                    24-Hour Timeline
+                </h2>
+                <div class="space-y-2 max-h-64 overflow-y-auto">
+                    {% for slot in slots %}
+                    <div class="flex items-center justify-between p-3 {% if slot.enabled %}bg-gray-700{% else %}bg-gray-700 opacity-50{% endif %} rounded">
+                        <div class="flex items-center gap-3">
+                            <span class="font-mono">{{ slot.start_time }} - {{ slot.end_time }}</span>
+                            <span class="text-yellow-500 font-semibold">{{ "%.2f"|format(slot.power_kw) }} kW</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <form action="{{ root_path }}/toggle_slot/{{ slot.id }}" method="post" class="inline">
+                                <button type="submit" class="p-1 hover:bg-gray-600 rounded" title="Toggle">
+                                    <i class="mdi mdi-{{ 'power' if slot.enabled else 'power-off' }}"></i>
+                                </button>
+                            </form>
+                            <form action="{{ root_path }}/delete_slot/{{ slot.id }}" method="post" class="inline">
+                                <button type="submit" class="p-1 hover:bg-red-600 rounded" title="Delete">
+                                    <i class="mdi mdi-delete"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% if not slots %}
+                    <p class="text-gray-400 text-center py-4">No time slots added yet</p>
+                    {% endif %}
+                </div>
+                <form action="{{ root_path }}/api/apply_now" method="post" class="mt-4">
+                    <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium transition">
+                        <i class="mdi mdi-refresh"></i> Apply to Inverter Now
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                <i class="mdi mdi-information"></i>
+                Instructions
+            </h2>
+            <ul class="space-y-2 text-gray-300">
+                <li>• Add time slots for when you want to export power to the grid</li>
+                <li>• Power values can be set from 0 to 16 kW with 0.01 kW precision</li>
+                <li>• The scheduler checks every minute and applies the correct setting to your Deye inverter</li>
+                <li>• Slots are automatically checked for time overlaps - make sure times don't conflict</li>
+                <li>• Use toggle to enable/disable slots without deleting them</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
