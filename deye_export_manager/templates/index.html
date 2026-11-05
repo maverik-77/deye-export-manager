@@ -26,19 +26,28 @@
       .sortable-chosen { box-shadow: 0 8px 24px rgba(0,0,0,.35); }
       .pulse-dot { box-shadow: 0 0 0 0 rgba(234,179,8,.5); animation: pulse 2s infinite; }
       @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(234,179,8,.45);} 70% { box-shadow: 0 0 0 8px rgba(234,179,8,0);} 100% { box-shadow: 0 0 0 0 rgba(234,179,8,0);} }
+      .tab-btn { transition: all .2s ease; }
+      .tab-btn.active { background: rgba(234,179,8,.15); color: #facc15; border-color: rgba(234,179,8,.5); }
+      .row-dirty td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
     </style>
 </head>
 <body class="bg-gradient-to-b from-gray-950 via-gray-900 to-gray-900 text-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8 max-w-6xl fade-in">
-        <header class="mb-8">
+    <div class="container mx-auto px-4 py-8 max-w-7xl fade-in">
+        <header class="mb-6">
             <h1 class="text-3xl font-bold flex items-center gap-2">
                 <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-yellow-500/15 text-yellow-400 pulse-dot"><i class="mdi mdi-transmission-tower-export"></i></span>
                 Deye Export Manager
             </h1>
-            <p class="text-gray-400 mt-2">Manage 24-hour export schedule for your Deye inverter</p>
-            <p class="text-gray-500 text-sm mt-1">Page loaded: {{ now_str }} (current time {{ mismatch.current_time if mismatch else '' }})</p>
+            <p class="text-gray-400 mt-2">Manage Deye export schedule and inverter Time of Use programs</p>
+            <p class="text-gray-500 text-sm mt-1">Page loaded: {{ now_str }} — values pulled live from Home Assistant/inverter on load.</p>
         </header>
 
+        <div class="flex gap-2 mb-6 border-b border-gray-700 pb-2">
+            <a href="{{ root_path }}/?tab=export" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='export' %}active{% endif %}" data-tab="export"><i class="mdi mdi-calendar-clock"></i> Export</a>
+            <a href="{{ root_path }}/?tab=import" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='import' %}active{% endif %}" data-tab="import"><i class="mdi mdi-tune-variant"></i> Import (TOU)</a>
+        </div>
+
+        {% if tab == 'export' %}
         {% if mismatch %}
         <div class="bg-amber-900/50 border border-amber-600/70 rounded-xl p-6 mb-8 card slide-down">
             <h2 class="text-xl font-semibold mb-2 flex items-center gap-2 text-amber-200">
@@ -98,7 +107,7 @@
                     <div class="text-gray-500 text-xs break-all">DB: {{ db_path }}</div>
                     {% if slots|length == 0 %}
                     <form action="{{ root_path }}/sync_from_inverter" method="post" class="mt-3">
-                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm font-medium transition">
+                        <button type="submit" class="btn w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-sm font-medium shadow-sm">
                             <i class="mdi mdi-download"></i> Create baseline schedule from current inverter value
                         </button>
                     </form>
@@ -167,11 +176,96 @@
             </div>
         </div>
 
+        {% else %}{# import tab #}
+        <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-6 mb-8 card">
+            <h2 class="text-xl font-semibold mb-2 flex items-center gap-2"><i class="mdi mdi-tune-variant"></i> Import / Time of Use Programs (Deye inverter)</h2>
+            <p class="text-gray-400 text-sm mb-4">Shows the <strong>6 TOU programs</strong> (<code>deye_prog1</code>–<code>deye_prog6</code>) pulled <strong>live from Home Assistant/inverter on every page load</strong>. No local copy is kept. Rows are ordered by program time. Edit fields and use <strong>Save &amp; sync</strong> on each row to write to the inverter. If you leave with unsaved changes, you’ll be asked whether to sync them.</p>
+            {% if import_saved %}<div class="mb-3 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> Program {{ import_saved }} synced to inverter (live values reloaded).</div>{% endif %}
+            {% if import_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Import sync issue:</strong> {{ import_error }}</div>{% endif %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg min-w-[1100px]">
+                    <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
+                        <tr>
+                            <th class="py-2 px-2">Prog</th>
+                            <th class="py-2 px-2">Time</th>
+                            <th class="py-2 px-2">Power (W)</th>
+                            <th class="py-2 px-2">Capacity (%)</th>
+                            <th class="py-2 px-2">Grid charge</th>
+                            <th class="py-2 px-2">Mode</th>
+                            <th class="py-2 px-2">Sell</th>
+                            <th class="py-2 px-2">Voltage (V)</th>
+                            <th class="py-2 px-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="import-tbody">
+                        {% for p in tou_programs %}
+                        {% set f = p.fields %}
+                        <tr class="border-b border-gray-700 slot-row import-row" data-prog="{{ p.n }}" data-form-id="import-form-{{ p.n }}">
+                            <td class="py-2 px-2 font-mono font-semibold">#{{ p.n }}{% if not f.time.ok %}<div class="text-red-400 text-xs font-normal">read issue</div>{% endif %}</td>
+                            <td class="py-2 px-2">
+                                <form id="import-form-{{ p.n }}" action="{{ root_path }}/import/save_program/{{ p.n }}" method="post" class="import-form"></form>
+                                <select form="import-form-{{ p.n }}" name="time" class="field import-field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono">
+                                    {% if f.time.options %}
+                                      {% for opt in f.time.options %}<option value="{{ opt }}" {% if f.time.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+                                      {% if f.time.state and f.time.state not in f.time.options %}<option value="{{ f.time.state }}" selected>{{ f.time.state }} (current)</option>{% endif %}
+                                    {% else %}
+                                      <option value="{{ f.time.state or '' }}" selected>{{ f.time.state or '—' }}</option>
+                                    {% endif %}
+                                </select>
+                                {% if f.time.error %}<div class="text-red-400 text-xs">{{ f.time.error }}</div>{% endif %}
+                            </td>
+                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="power" step="{{ f.power.step or 1 }}" min="{{ f.power.min if f.power.min is not none else 0 }}" max="{{ f.power.max if f.power.max is not none else 16000 }}" value="{{ f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-24 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
+                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="capacity" step="{{ f.capacity.step or 1 }}" min="{{ f.capacity.min if f.capacity.min is not none else 0 }}" max="{{ f.capacity.max if f.capacity.max is not none else 100 }}" value="{{ f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2">
+                                <select form="import-form-{{ p.n }}" name="charge" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                    {% for opt in (f.charge.options or []) %}<option value="{{ opt }}" {% if f.charge.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+                                    {% if f.charge.state and f.charge.options and f.charge.state not in f.charge.options %}<option value="{{ f.charge.state }}" selected>{{ f.charge.state }} (current)</option>{% endif %}
+                                    {% if not f.charge.options %}<option value="{{ f.charge.state or '' }}" selected>{{ f.charge.state or '—' }}</option>{% endif %}
+                                </select>
+                            </td>
+                            <td class="py-2 px-2">
+                                <select form="import-form-{{ p.n }}" name="mode" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                    {% for opt in (f.mode.options or []) %}<option value="{{ opt }}" {% if f.mode.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+                                    {% if f.mode.state and f.mode.options and f.mode.state not in f.mode.options %}<option value="{{ f.mode.state }}" selected>{{ f.mode.state }} (current)</option>{% endif %}
+                                    {% if not f.mode.options %}<option value="{{ f.mode.state or '' }}" selected>{{ f.mode.state or '—' }}</option>{% endif %}
+                                </select>
+                            </td>
+                            <td class="py-2 px-2">
+                                <select form="import-form-{{ p.n }}" name="sell" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                    <option value="on" {% if f.sell.state in ['on','1','true','True'] %}selected{% endif %}>On</option>
+                                    <option value="off" {% if f.sell.state not in ['on','1','true','True'] %}selected{% endif %}>Off</option>
+                                </select>
+                            </td>
+                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="voltage" step="{{ f.voltage.step or 0.1 }}" min="{{ f.voltage.min if f.voltage.min is not none else 0 }}" max="{{ f.voltage.max if f.voltage.max is not none else 100 }}" value="{{ f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2 whitespace-nowrap">
+                                <button form="import-form-{{ p.n }}" type="submit" class="btn bg-green-600 hover:bg-green-700 text-white py-1.5 px-3 rounded-lg text-sm font-medium shadow-sm"><i class="mdi mdi-content-save-move"></i> Save &amp; sync</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-gray-500 text-xs mt-3">Writes use HA services for <code>deye_progN_*</code> entities (time/charge/mode via select, power/capacity/voltage via number, sell via switch). Always verify values after syncing.</p>
+        </div>
+        {% endif %}
+    </div>
 
+    <div id="leave-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-lg w-full card slide-down">
+            <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-alert text-amber-400"></i> Unsaved Import changes</h3>
+            <p class="text-gray-300 text-sm mb-4">You have edited TOU program row(s) that haven’t been synced to the inverter. Sync them before leaving?</p>
+            <div class="flex flex-wrap gap-2">
+                <button id="leave-sync" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-sm font-medium">Sync all &amp; leave</button>
+                <button id="leave-discard" class="btn bg-gray-600 hover:bg-gray-500 text-white py-2 px-3 rounded-lg text-sm font-medium">Leave without syncing</button>
+                <button id="leave-cancel" class="btn bg-amber-700 hover:bg-amber-600 text-white py-2 px-3 rounded-lg text-sm font-medium">Cancel</button>
+            </div>
+            <p id="leave-status" class="text-xs text-gray-400 mt-3"></p>
+        </div>
     </div>
 
     <script>
     (function(){
+      // Export table behaviors
       var tbody = document.getElementById('slots-tbody');
       var addBtn = document.getElementById('add-row-btn');
       var newCount = 0;
@@ -180,7 +274,6 @@
         addBtn.addEventListener('click', function(){
           newCount++;
           var nid = 'new_' + newCount;
-          // remove "no config" placeholder row if present
           var empty = tbody.querySelector('td[colspan]');
           if (empty) { var er = empty.closest('tr'); if(er) er.remove(); }
           var tr = document.createElement('tr');
@@ -206,6 +299,42 @@
           chosenClass: 'sortable-chosen'
         });
       }
+
+      // Import dirty tracking + leave prompt
+      var dirty = {};
+      function markDirty(n, val){ dirty[n]=val; var row=document.querySelector('.import-row[data-prog="'+n+'"]'); if(row) row.classList.toggle('row-dirty', !!val); }
+      function hasDirty(){ return Object.keys(dirty).some(function(k){ return dirty[k]; }); }
+      function dirtyForms(){ return Array.prototype.filter.call(document.querySelectorAll('.import-form'), function(f){ var row=f.closest('.import-row'); return row && dirty[row.getAttribute('data-prog')]; }); }
+      document.querySelectorAll('.import-field').forEach(function(el){
+        el.addEventListener('change', function(){ var row=el.closest('.import-row'); if(row) markDirty(row.getAttribute('data-prog'), true); });
+        el.addEventListener('input', function(){ var row=el.closest('.import-row'); if(row) markDirty(row.getAttribute('data-prog'), true); });
+      });
+      document.querySelectorAll('.import-form').forEach(function(f){ f.addEventListener('submit', function(){ var row=f.closest('.import-row'); if(row) markDirty(row.getAttribute('data-prog'), false); }); });
+      window.addEventListener('beforeunload', function(e){ if(hasDirty()){ e.preventDefault(); e.returnValue=''; } });
+
+      var pendingHref = null;
+      var modal = document.getElementById('leave-modal');
+      function showModal(href){ pendingHref=href; if(modal){ modal.classList.remove('hidden'); modal.classList.add('flex'); } }
+      function hideModal(){ if(modal){ modal.classList.add('hidden'); modal.classList.remove('flex'); } pendingHref=null; }
+      document.querySelectorAll('a[href]').forEach(function(a){
+        a.addEventListener('click', function(ev){ if(hasDirty() && !a.target){ ev.preventDefault(); showModal(a.href); } });
+      });
+      var cancelBtn=document.getElementById('leave-cancel'); if(cancelBtn) cancelBtn.addEventListener('click', hideModal);
+      var discardBtn=document.getElementById('leave-discard'); if(discardBtn) discardBtn.addEventListener('click', function(){ dirty={}; if(pendingHref) window.location=pendingHref; else hideModal(); });
+      var syncBtn=document.getElementById('leave-sync'); if(syncBtn) syncBtn.addEventListener('click', async function(){
+        var status=document.getElementById('leave-status'); if(status) status.textContent='Syncing changed rows to inverter...';
+        var forms=dirtyForms();
+        try {
+          for (var i=0;i<forms.length;i++){
+            var fd=new FormData(forms[i]);
+            var resp=await fetch(forms[i].action, {method:'POST', body:fd, credentials:'same-origin'});
+            if(!resp.ok && resp.status!==303){ throw new Error('Sync failed for a row'); }
+          }
+          dirty={};
+          if(status) status.textContent='Synced.';
+          if(pendingHref) window.location=pendingHref; else window.location.reload();
+        } catch(err){ if(status) status.textContent='Error: '+err.message+'. You can cancel and save rows individually.'; }
+      });
     })();
     </script>
 </body>
