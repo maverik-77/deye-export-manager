@@ -395,8 +395,12 @@ async def save_slots(request: Request):
     slots = []
     for i, sid in enumerate(ids):
         try:
+            raw_id = str(sid)
+            is_new = raw_id.startswith("new") or raw_id == "" or raw_id == "0"
             sl = {
-                "id": int(sid),
+                "id": raw_id,
+                "db_id": None if is_new else int(raw_id),
+                "is_new": is_new,
                 "start_time": str(starts[i]),
                 "end_time": str(ends[i]),
                 "power_kw": round(max(0.0, min(16000.0, float(powers[i]))) / 1000.0, 3),
@@ -413,10 +417,16 @@ async def save_slots(request: Request):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     for sl in slots:
-        c.execute(
-            "UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, enabled=? WHERE id=?",
-            (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl["enabled"], sl["id"]),
-        )
+        if sl["is_new"]:
+            c.execute(
+                "INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES (?, ?, ?, ?)",
+                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl["enabled"]),
+            )
+        else:
+            c.execute(
+                "UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, enabled=? WHERE id=?",
+                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl["enabled"], sl["db_id"]),
+            )
     conn.commit()
     conn.close()
     return RedirectResponse(url=f"{root_path}/?saved=1", status_code=303)

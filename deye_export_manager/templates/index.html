@@ -92,7 +92,7 @@
                 <i class="mdi mdi-table"></i>
                 Stored Configuration (Local Database)
             </h2>
-            <p class="text-gray-400 text-sm mb-3">Edit values and click <strong>Save schedule</strong> to update the database. On save, <strong>enabled</strong> slots must cover 00:00–24:00 continuously with no gaps/overlaps (use <code>00:00</code> as end for midnight; <code>00:00–00:00</code> for all day). <span class="text-gray-300">Drag the <i class="mdi mdi-drag-vertical"></i> handle to rearrange rows for easier viewing/editing</span> (saved schedule logic is based on times; display reloads ordered by start time).</p>
+            <p class="text-gray-400 text-sm mb-3">Add rows in this table, edit values, and click <strong>Save schedule</strong> to save to the database. New rows are created on save; existing rows are updated. <strong>Enabled</strong> slots must cover 00:00–24:00 continuously with no gaps/overlaps (use <code>00:00</code> as end for midnight; <code>00:00–00:00</code> for all day). <span class="text-gray-300">Drag the <i class="mdi mdi-drag-vertical"></i> handle to rearrange rows for easier viewing/editing</span> (schedule logic is time-based; display reloads ordered by start time).</p>
             {% if saved %}<div class="mb-3 p-3 rounded bg-green-900/50 border border-green-700 text-green-200 text-sm">Schedule saved.</div>{% endif %}
             {% if save_error %}<div class="mb-3 p-3 rounded bg-red-900/50 border border-red-700 text-red-200 text-sm"><i class="mdi mdi-alert-circle"></i> <strong>Save failed:</strong> {{ save_error }}</div>{% endif %}
             {% if coverage_ok %}<div class="mb-3 p-3 rounded bg-green-900/30 border border-green-800 text-green-300 text-sm"><i class="mdi mdi-check-circle"></i> Enabled schedule covers the full 24-hour period continuously.</div>{% elif coverage_error %}<div class="mb-3 p-3 rounded bg-red-900/40 border border-red-700 text-red-200 text-sm"><i class="mdi mdi-alert-circle"></i> Coverage check: {{ coverage_error }}</div>{% endif %}
@@ -133,62 +133,59 @@
                         </tr>
                         {% endfor %}
                         {% if not slots %}
-                        <tr><td colspan="7" class="py-4 text-center text-gray-400">No configuration stored in local database. Add slots, then use Save schedule to validate full 24-hour coverage.</td></tr>
+                        <tr><td colspan="7" class="py-4 text-center text-gray-400">No configuration stored in local database. Click <strong>Add row</strong>, enter slots, then <strong>Save schedule</strong> (enabled slots must cover 24h).</td></tr>
                         {% endif %}
                     </tbody>
                 </table>
             </div>
-            {% if slots %}
-            <div class="mt-4">
+            <div class="mt-4 flex flex-wrap gap-2">
+                <button type="button" id="add-row-btn" class="bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded font-medium transition"><i class="mdi mdi-table-row-plus-after"></i> Add row</button>
                 <button form="save-all-slots" type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded font-medium transition"><i class="mdi mdi-content-save"></i> Save schedule</button>
             </div>
-            {% endif %}
         </div>
 
-        <div class="grid md:grid-cols-2 gap-6 mb-8">
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <i class="mdi mdi-plus-circle"></i>
-                    Add Time Slot
-                </h2>
-                <form action="{{ root_path }}/add_slot" method="post" class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium mb-2">From Time</label>
-                        <input type="time" name="start_time" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-2">To Time</label>
-                        <input type="time" name="end_time" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
-                        <p class="text-xs text-gray-500 mt-1">For midnight end use 00:00 (e.g. 22:00–00:00). All-day: 00:00–00:00. Saved schedule must cover 24h continuously.</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-2">Export Power (W)</label>
-                        <input type="number" name="power_w" step="1" min="0" max="16000" placeholder="e.g., 2350" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
-                    </div>
-                    <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded font-medium transition">
-                        <i class="mdi mdi-plus"></i> Add Slot
-                    </button>
-                </form>
-            </div>
-
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <i class="mdi mdi-refresh"></i>
-                    Actions
-                </h2>
-                <p class="text-gray-400 text-sm mb-4">On each load (and first load after restart) the app pulls the inverter value and compares it to the schedule expected now. If they differ, you’ll be asked which value is the master.</p>
-                <form action="{{ root_path }}/api/apply_now" method="post">
-                    <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium transition">
-                        <i class="mdi mdi-upload"></i> Apply Schedule to Inverter Now
-                    </button>
-                </form>
-            </div>
+        <div class="bg-gray-800 rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                <i class="mdi mdi-refresh"></i>
+                Actions
+            </h2>
+            <p class="text-gray-400 text-sm mb-4">On each load (and first load after restart) the app pulls the inverter value and compares it to the schedule expected now. If they differ, you’ll be asked which value is the master. Add new time slots using <strong>Add row</strong> in the table above, edit values, then click <strong>Save schedule</strong>.</p>
+            <form action="{{ root_path }}/api/apply_now" method="post">
+                <button type="submit" class="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium transition">
+                    <i class="mdi mdi-upload"></i> Apply Schedule to Inverter Now
+                </button>
+            </form>
         </div>
     </div>
 
     <script>
     (function(){
       var tbody = document.getElementById('slots-tbody');
+      var addBtn = document.getElementById('add-row-btn');
+      var newCount = 0;
+      function wireRemove(btn){ btn.addEventListener('click', function(){ var tr = btn.closest('tr'); if(tr) tr.remove(); }); }
+      if (addBtn && tbody) {
+        addBtn.addEventListener('click', function(){
+          newCount++;
+          var nid = 'new_' + newCount;
+          // remove "no config" placeholder row if present
+          var empty = tbody.querySelector('td[colspan]');
+          if (empty) { var er = empty.closest('tr'); if(er) er.remove(); }
+          var tr = document.createElement('tr');
+          tr.className = 'border-b border-gray-700 slot-row';
+          tr.innerHTML = ''
+            + '<td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>'
+            + '<td class="py-2 pr-2 font-mono text-gray-500">new<input form="save-all-slots" type="hidden" name="id" value="'+nid+'"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="00:00" required class="w-28 px-2 py-1 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="00:00" required class="w-28 px-2 py-1 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="0" required class="w-28 px-2 py-1 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>'
+            + '<td class="py-2 pr-2"><select form="save-all-slots" name="enabled" class="px-2 py-1 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none"><option value="1" selected>Yes</option><option value="0">No</option></select></td>'
+            + '<td class="py-2 whitespace-nowrap"><button type="button" class="px-2 py-1 hover:bg-red-600 rounded text-xs remove-new-row" title="Remove unsaved row"><i class="mdi mdi-close"></i> Remove</button></td>';
+          tbody.appendChild(tr);
+          var rm = tr.querySelector('.remove-new-row');
+          if (rm) wireRemove(rm);
+        });
+      }
       if (tbody && window.Sortable) {
         Sortable.create(tbody, {
           handle: '.drag-handle',
