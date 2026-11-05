@@ -5,7 +5,7 @@ Custom Home Assistant add-on for managing a **24-hour export-power schedule** fo
 ## Required Home Assistant automations: **NONE**
 
 **You do not need to create any Home Assistant automations for this add-on to work.**  
-Core scheduling and applying values to the inverter are handled by the add-on itself (checks every minute, plus “Apply Schedule to Inverter Now” in the UI), as long as:
+Core scheduling and applying values to the inverter are handled by the add-on itself (checks every minute, plus **Apply schedule to inverter now** in the UI), as long as:
 
 - the add-on is installed, configured, and **running**;
 - Home Assistant API access is available to the add-on (it uses `homeassistant_api` / Supervisor token);
@@ -60,7 +60,7 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
    - **Drag** handle: rearranges rows for viewing/editing (visual only; schedule is time-based and reloads ordered by start time).
    - Edit Start/End/Power (W)/Enabled, then click **Save schedule**.
 4. **Save validation:** enabled slots must form a complete 24-hour partition (00:00–24:00, contiguous, no overlaps). If validation fails, an error is shown and the page reloads from the DB (unsaved edits/new rows from that attempt are not kept).
-5. **Apply Schedule to Inverter Now:** applies the currently expected schedule value immediately (if different from last applied).
+5. **Apply schedule to inverter now** (in the table controls): applies the currently expected schedule value immediately (if different from last applied).
 
 ## Time & coverage rules
 
@@ -175,7 +175,7 @@ action:
 ## Troubleshooting
 
 - **Entity error/not found:** check `deye_entity` in add-on Configuration and confirm it exists in **Developer Tools → States**.
-- **Schedule not applying:** check add-on **Log**; verify add-on is running, entity is controllable, and units/scale are correct. Use **Apply Schedule to Inverter Now** to test.
+- **Schedule not applying:** check add-on **Log**; verify add-on is running, entity is controllable, and units/scale are correct. Use **Apply schedule to inverter now** to test.
 - **Save failed / coverage error:** enabled slots must cover 00:00–24:00 with no gaps/overlaps. Use `00:00` end for midnight; for a final-minute issue, end the last slot at `00:00`.
 - **Mismatch prompt:** choose the correct master after reviewing live inverter vs. expected schedule.
 - **After updating add-on:** **Check for updates**, rebuild/update, restart, and hard-refresh the ingress UI if it looks stale.

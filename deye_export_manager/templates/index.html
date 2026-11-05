@@ -138,24 +138,16 @@
                     </tbody>
                 </table>
             </div>
-            <div class="mt-4 flex flex-wrap gap-2">
+            <div class="mt-4 flex flex-wrap gap-2 items-center">
                 <button type="button" id="add-row-btn" class="bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded font-medium transition"><i class="mdi mdi-table-row-plus-after"></i> Add row</button>
                 <button form="save-all-slots" type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded font-medium transition"><i class="mdi mdi-content-save"></i> Save schedule</button>
+                <form action="{{ root_path }}/api/apply_now" method="post" class="inline">
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium transition"><i class="mdi mdi-upload"></i> Apply schedule to inverter now</button>
+                </form>
             </div>
         </div>
 
-        <div class="bg-gray-800 rounded-lg p-6 mb-8">
-            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
-                <i class="mdi mdi-refresh"></i>
-                Actions
-            </h2>
-            <p class="text-gray-400 text-sm mb-4">On each load (and first load after restart) the app pulls the inverter value and compares it to the schedule expected now. If they differ, you’ll be asked which value is the master. Add new time slots using <strong>Add row</strong> in the table above, edit values, then click <strong>Save schedule</strong>.</p>
-            <form action="{{ root_path }}/api/apply_now" method="post">
-                <button type="submit" class="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded font-medium transition">
-                    <i class="mdi mdi-upload"></i> Apply Schedule to Inverter Now
-                </button>
-            </form>
-        </div>
+
     </div>
 
     <script>
