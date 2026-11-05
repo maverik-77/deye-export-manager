@@ -158,11 +158,71 @@ def get_slots():
     return slots
 
 
+
+
+def _hhmm_to_min(t):
+    h, m = t.strip().split(":")
+    return int(h) * 60 + int(m)
+
+
+def _slot_interval(start_time, end_time):
+    s = _hhmm_to_min(start_time)
+    e = _hhmm_to_min(end_time)
+    if start_time == "00:00" and end_time == "00:00":
+        return 0, 1440
+    if end_time == "00:00" and start_time != "00:00":
+        e = 1440
+    return s, e
+
+
+def _validate_24h_coverage(slots, require_enabled=True):
+    """Return (ok, error). If require_enabled, enabled slots must partition [0,1440)."""
+    if not slots:
+        return False, "No slots configured."
+    for sl in slots:
+        try:
+            s, e = _slot_interval(sl["start_time"], sl["end_time"])
+        except Exception:
+            return False, f"Invalid time format in slot {sl.get('id','?')}."
+        if e <= s:
+            return False, f"Slot {sl.get('id','?')}: end time must be after start time (use 00:00 as end for midnight)."
+        p = float(sl["power_kw"])
+        if p < 0 or p > 16:
+            return False, f"Slot {sl.get('id','?')}: power must be 0–16 kW."
+    active = [sl for sl in slots if sl.get("enabled")]
+    if require_enabled and not active:
+        return False, "At least one enabled slot is required."
+    if not require_enabled:
+        active = list(slots)
+    intervals = []
+    for sl in active:
+        s, e = _slot_interval(sl["start_time"], sl["end_time"])
+        intervals.append((s, e, sl.get("id")))
+    intervals.sort()
+    if intervals[0][0] != 0:
+        return False, f"Schedule must start at 00:00 (first enabled slot starts at {intervals[0][0]//60:02d}:{intervals[0][0]%60:02d})."
+    cur = 0
+    for s, e, sid in intervals:
+        if s != cur:
+            if s < cur:
+                return False, f"Slots overlap or are out of order around slot {sid} ({s//60:02d}:{s%60:02d})."
+            return False, f"Gap in schedule: {cur//60:02d}:{cur%60:02d}–{s//60:02d}:{s%60:02d} is not covered."
+        cur = e
+    if cur != 1440:
+        return False, f"Schedule must cover until 24:00/00:00 (ends at {cur//60:02d}:{cur%60:02d}). Use 00:00 as end time for midnight."
+    return True, None
+
 def expected_power_now(slots, now=None):
     now = now or datetime.now()
-    current_time = now.strftime("%H:%M")
+    cur = now.hour * 60 + now.minute
     for slot in slots:
-        if slot.get("enabled") and slot["start_time"] <= current_time < slot["end_time"]:
+        if not slot.get("enabled"):
+            continue
+        try:
+            s, e = _slot_interval(slot["start_time"], slot["end_time"])
+        except Exception:
+            continue
+        if s <= cur < e:
             return float(slot["power_kw"]), slot
     return 0.0, None
 
@@ -172,14 +232,18 @@ def _compute_and_maybe_get_apply():
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     now = datetime.now()
-    current_time = now.strftime("%H:%M")
+    cur = now.hour * 60 + now.minute
 
     c.execute("SELECT * FROM schedule_slots WHERE enabled=1 ORDER BY start_time")
     slots = c.fetchall()
 
     active_power = 0
     for slot in slots:
-        if slot["start_time"] <= current_time < slot["end_time"]:
+        try:
+            s, e = _slot_interval(slot["start_time"], slot["end_time"])
+        except Exception:
+            continue
+        if s <= cur < e:
             active_power = int(float(slot["power_kw"]) * 1000)
             break
 
@@ -230,6 +294,9 @@ async def index(request: Request):
                 "startup_check": not STARTUP_CHECK_DONE,
             }
     STARTUP_CHECK_DONE = True
+    coverage_ok, coverage_error = _validate_24h_coverage(slots, require_enabled=True) if slots else (False, "No slots configured.")
+    saved = request.query_params.get("saved")
+    save_error = request.query_params.get("error")
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -243,13 +310,21 @@ async def index(request: Request):
         active_slot=active_slot,
         mismatch=mismatch,
         now_str=now.strftime("%Y-%m-%d %H:%M:%S"),
+        coverage_ok=coverage_ok,
+        coverage_error=coverage_error,
+        saved=saved,
+        save_error=save_error,
     ))
 
 @app.post("/add_slot")
 async def add_slot(request: Request, start_time: str = Form(...), end_time: str = Form(...), power_kw: float = Form(...)):
-    if start_time >= end_time:
-        raise HTTPException(status_code=400, detail="Start time must be before end time")
-
+    try:
+        s_min, e_min = _slot_interval(start_time, end_time)
+        if e_min <= s_min:
+            raise ValueError()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid time range. Use HH:MM; for midnight end use 00:00.")
+    power_kw = max(0.0, min(16.0, float(power_kw)))
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("INSERT INTO schedule_slots (start_time, end_time, power_kw) VALUES (?, ?, ?)",
@@ -282,8 +357,12 @@ async def toggle_slot(request: Request, slot_id: int):
 
 @app.post("/update_slot/{slot_id}")
 async def update_slot(request: Request, slot_id: int, start_time: str = Form(...), end_time: str = Form(...), power_kw: float = Form(...), enabled: str = Form(None)):
-    if start_time >= end_time:
-        raise HTTPException(status_code=400, detail="Start time must be before end time")
+    try:
+        s_min, e_min = _slot_interval(start_time, end_time)
+        if e_min <= s_min:
+            raise ValueError()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid time range. Use HH:MM; for midnight end use 00:00.")
     power_kw = max(0.0, min(16.0, float(power_kw)))
     en = 1 if enabled is not None else 0
     conn = sqlite3.connect(DB_PATH)
@@ -294,6 +373,49 @@ async def update_slot(request: Request, slot_id: int, start_time: str = Form(...
     conn.close()
     root_path = request.scope.get("root_path", "")
     return RedirectResponse(url=f"{root_path}/", status_code=303)
+
+
+
+@app.post("/save_slots")
+async def save_slots(request: Request):
+    root_path = request.scope.get("root_path", "")
+    form = await request.form()
+    ids = form.getlist("id")
+    starts = form.getlist("start_time")
+    ends = form.getlist("end_time")
+    powers = form.getlist("power_kw")
+    enableds = form.getlist("enabled")
+    if not (len(ids) == len(starts) == len(ends) == len(powers) == len(enableds)):
+        from urllib.parse import quote
+        return RedirectResponse(url=f"{root_path}/?error={quote('Malformed form submission.')}", status_code=303)
+    slots = []
+    for i, sid in enumerate(ids):
+        try:
+            sl = {
+                "id": int(sid),
+                "start_time": str(starts[i]),
+                "end_time": str(ends[i]),
+                "power_kw": float(powers[i]),
+                "enabled": 1 if str(enableds[i]) in ("1", "true", "True", "on", "yes") else 0,
+            }
+        except Exception:
+            from urllib.parse import quote
+            return RedirectResponse(url=f"{root_path}/?error={quote(f'Invalid values in row {i+1}.')}", status_code=303)
+        slots.append(sl)
+    ok, err = _validate_24h_coverage(slots, require_enabled=True)
+    if not ok:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"{root_path}/?error={quote(err)}", status_code=303)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    for sl in slots:
+        c.execute(
+            "UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, enabled=? WHERE id=?",
+            (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl["enabled"], sl["id"]),
+        )
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url=f"{root_path}/?saved=1", status_code=303)
 
 @app.get("/api/slots")
 async def api_slots():
@@ -324,12 +446,20 @@ async def resolve_mismatch(request: Request, master: str = Form(...)):
         c = conn.cursor()
         c.execute("SELECT * FROM schedule_slots WHERE enabled=1 ORDER BY start_time")
         enabled = c.fetchall()
-        now = datetime.now().strftime("%H:%M")
-        covered = next((s for s in enabled if s["start_time"] <= now < s["end_time"]), None)
+        cur = datetime.now().hour * 60 + datetime.now().minute
+        covered = None
+        for sl in enabled:
+            try:
+                si, ei = _slot_interval(sl["start_time"], sl["end_time"])
+            except Exception:
+                continue
+            if si <= cur < ei:
+                covered = sl
+                break
         if covered:
             c.execute("UPDATE schedule_slots SET power_kw=? WHERE id=?", (inv_kw, covered["id"]))
         else:
-            c.execute("INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES ('00:00','23:59',?,1)", (inv_kw,))
+            c.execute("INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES ('00:00','00:00',?,1)", (inv_kw,))
         c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_applied', ?)", (str(int(round(inv_kw * 1000))),))
         conn.commit()
         conn.close()
@@ -380,7 +510,7 @@ async def sync_from_inverter(request: Request):
                 power_kw = 0.0
         c.execute(
             "INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES (?, ?, ?, 1)",
-            ("00:00", "23:59", power_kw),
+            ("00:00", "00:00", power_kw),
         )
         conn.commit()
     conn.close()

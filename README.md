@@ -13,7 +13,7 @@ Add this repository in Home Assistant:
 ## Features
 
 - 24-hour schedule with multiple time slots (ordered by start time)
-- Add/delete/edit/enable/disable slots (inline table editing in UI)
+- Add/delete slots; edit all rows in the table and use a **single “Save schedule”** action
 - Export power with fine precision (UI supports `0–16 kW`, `0.01 kW` step)
 - Stores schedules in the add-on’s local SQLite database (`/data/schedules.db` inside the add-on)
 - Pulls **live inverter value** from Home Assistant on page load / after restart
@@ -153,7 +153,7 @@ The add-on applies on its own schedule and provides an **Apply Schedule to Inver
 
 ## Important notes
 
-- **No slot covering current time:** the add-on applies **0 W** for that period. Adjust slots if you want a different default.
+- **Full 24-hour coverage required on save:** when you click **Save schedule**, enabled slots must cover the entire day continuously with no gaps/overlaps (`00:00`–24:00). Use `00:00` as an end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot. Gaps can exist temporarily while editing/adding/deleting, but saving enforces a complete schedule; runtime applies **0 W** only if no enabled slot matches (should not occur for a valid saved schedule).
 - **Entity units/scale:** integrations differ (W vs kW, different ranges). Confirm that values applied by the add-on match what your Deye/integration expects.
 - **Add-on database is separate** from any old standalone app data; schedules won’t auto-import.
 - **After updates:** HA may require **Check for updates**, add-on rebuild/update, and restart. If UI/API behavior seems stale, confirm the running version in add-on info/logs.
