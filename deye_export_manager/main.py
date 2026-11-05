@@ -151,10 +151,11 @@ def get_slots():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    c.execute("SELECT * FROM schedule_slots ORDER BY start_time")
+    c.execute("SELECT * FROM schedule_slots")
     rows = c.fetchall()
     slots = [dict(row) for row in rows]
     conn.close()
+    slots.sort(key=_slot_sort_key)
     return slots
 
 
@@ -173,6 +174,21 @@ def _slot_interval(start_time, end_time):
     if end_time == "00:00" and start_time != "00:00":
         e = 1440
     return s, e
+
+
+def _slot_sort_key(sl):
+    try:
+        s_min, e_min = _slot_interval(sl["start_time"], sl["end_time"])
+    except Exception:
+        s_min, e_min = 0, 0
+    duration = e_min - s_min
+    # sort by start asc; if same start, longer duration first (on top)
+    # if a disabled one shares same start, longer duration still wins; stable tie-break by id
+    try:
+        sid = int(sl.get("id") if str(sl.get("id", "")).isdigit() else 0)
+    except Exception:
+        sid = 0
+    return (s_min, -duration, sid)
 
 
 def _validate_24h_coverage(slots, require_enabled=True):
@@ -198,7 +214,7 @@ def _validate_24h_coverage(slots, require_enabled=True):
     for sl in active:
         s, e = _slot_interval(sl["start_time"], sl["end_time"])
         intervals.append((s, e, sl.get("id")))
-    intervals.sort()
+    intervals.sort(key=lambda x: (x[0], -x[1], x[2]))
     if intervals[0][0] != 0:
         return False, f"Schedule must start at 00:00 (first enabled slot starts at {intervals[0][0]//60:02d}:{intervals[0][0]%60:02d})."
     cur = 0
@@ -234,8 +250,9 @@ def _compute_and_maybe_get_apply():
     now = datetime.now()
     cur = now.hour * 60 + now.minute
 
-    c.execute("SELECT * FROM schedule_slots WHERE enabled=1 ORDER BY start_time")
-    slots = c.fetchall()
+    c.execute("SELECT * FROM schedule_slots WHERE enabled=1")
+    slots = [dict(r) for r in c.fetchall()]
+    slots.sort(key=_slot_sort_key)
 
     active_power = 0
     for slot in slots:
@@ -458,8 +475,9 @@ async def resolve_mismatch(request: Request, master: str = Form(...)):
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
-        c.execute("SELECT * FROM schedule_slots WHERE enabled=1 ORDER BY start_time")
-        enabled = c.fetchall()
+        c.execute("SELECT * FROM schedule_slots WHERE enabled=1")
+        enabled = [dict(r) for r in c.fetchall()]
+        enabled.sort(key=_slot_sort_key)
         cur = datetime.now().hour * 60 + datetime.now().minute
         covered = None
         for sl in enabled:
