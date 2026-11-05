@@ -270,6 +270,22 @@ async def toggle_slot(request: Request, slot_id: int):
     root_path = request.scope.get("root_path", "")
     return RedirectResponse(url=f"{root_path}/", status_code=303)
 
+
+@app.post("/update_slot/{slot_id}")
+async def update_slot(request: Request, slot_id: int, start_time: str = Form(...), end_time: str = Form(...), power_kw: float = Form(...), enabled: str = Form(None)):
+    if start_time >= end_time:
+        raise HTTPException(status_code=400, detail="Start time must be before end time")
+    power_kw = max(0.0, min(16.0, float(power_kw)))
+    en = 1 if enabled is not None else 0
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, enabled=? WHERE id=?",
+              (start_time, end_time, power_kw, en, slot_id))
+    conn.commit()
+    conn.close()
+    root_path = request.scope.get("root_path", "")
+    return RedirectResponse(url=f"{root_path}/", status_code=303)
+
 @app.get("/api/slots")
 async def api_slots():
     slots = get_slots()
