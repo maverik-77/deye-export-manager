@@ -167,7 +167,7 @@ def expected_power_now(slots, now=None):
     return 0.0, None
 
 
-def check_and_apply_schedule():
+def _compute_and_maybe_get_apply():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -186,13 +186,22 @@ def check_and_apply_schedule():
     c.execute("SELECT value FROM settings WHERE key='last_applied'")
     row = c.fetchone()
     last_applied = int(row["value"]) if row else -1
-
-    if active_power != last_applied:
-        asyncio.run(apply_to_ha(active_power))
+    changed = active_power != last_applied
+    if changed:
         c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_applied', ?)", (str(active_power),))
         conn.commit()
-
     conn.close()
+    return active_power, changed
+
+
+def check_and_apply_schedule():
+    """Called by APScheduler from a background thread."""
+    active_power, changed = _compute_and_maybe_get_apply()
+    if changed:
+        try:
+            asyncio.run(apply_to_ha(active_power))
+        except Exception as e:
+            print(f"Error applying scheduled power: {e}")
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(check_and_apply_schedule, "interval", minutes=1)
@@ -346,7 +355,9 @@ async def api_status():
 
 @app.post("/api/apply_now")
 async def api_apply_now(request: Request):
-    check_and_apply_schedule()
+    active_power, changed = _compute_and_maybe_get_apply()
+    if changed:
+        await apply_to_ha(active_power)
     root_path = request.scope.get("root_path", "")
     return RedirectResponse(url=f"{root_path}/", status_code=303)
 
