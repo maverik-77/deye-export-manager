@@ -85,6 +85,49 @@ async def apply_to_ha(power_watts: int):
         print(f"Error applying to HA: {e}")
         return False
 
+
+async def get_ha_entity_state():
+    if not HA_TOKEN:
+        return {"ok": False, "error": "No Supervisor token available"}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{HA_URL}/api/states/{DEYE_ENTITY}",
+                headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+                timeout=10.0,
+            )
+            if response.status_code == 404:
+                return {"ok": False, "error": f"Entity not found: {DEYE_ENTITY}"}
+            if response.status_code >= 400:
+                return {"ok": False, "error": f"HA API error {response.status_code}"}
+            data = response.json()
+            attrs = data.get("attributes") or {}
+            return {
+                "ok": True,
+                "entity_id": data.get("entity_id", DEYE_ENTITY),
+                "state": data.get("state"),
+                "friendly_name": attrs.get("friendly_name"),
+                "unit": attrs.get("unit_of_measurement"),
+                "min": attrs.get("min"),
+                "max": attrs.get("max"),
+                "step": attrs.get("step"),
+                "last_changed": data.get("last_changed"),
+            }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def get_last_applied():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT value FROM settings WHERE key='last_applied'")
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
 def check_and_apply_schedule():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -129,7 +172,18 @@ async def index(request: Request):
     conn.close()
     template = env.get_template("index.html")
     root_path = request.scope.get("root_path", "")
-    return HTMLResponse(template.render(request=request, slots=slots, root_path=root_path))
+    ha_status = await get_ha_entity_state()
+    last_applied = get_last_applied()
+    return HTMLResponse(template.render(
+        request=request,
+        slots=slots,
+        root_path=root_path,
+        ha_status=ha_status,
+        deye_entity=DEYE_ENTITY,
+        ha_url=HA_URL,
+        last_applied=last_applied,
+        db_path=DB_PATH,
+    ))
 
 @app.post("/add_slot")
 async def add_slot(request: Request, start_time: str = Form(...), end_time: str = Form(...), power_kw: float = Form(...)):
@@ -174,6 +228,17 @@ async def api_slots():
     slots = [dict(row) for row in c.fetchall()]
     conn.close()
     return JSONResponse(slots)
+
+@app.get("/api/status")
+async def api_status():
+    ha_status = await get_ha_entity_state()
+    return JSONResponse({
+        "deye_entity": DEYE_ENTITY,
+        "ha_url": HA_URL,
+        "ha_status": ha_status,
+        "last_applied_watts": get_last_applied(),
+        "db_path": DB_PATH,
+    })
 
 @app.post("/api/apply_now")
 async def api_apply_now(request: Request):

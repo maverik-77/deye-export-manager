@@ -17,6 +17,39 @@
             <p class="text-gray-400 mt-2">Manage 24-hour export schedule for your Deye inverter</p>
         </header>
 
+        <div class="bg-gray-800 rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                <i class="mdi mdi-information-outline"></i>
+                Current Configuration &amp; Status
+            </h2>
+            <div class="grid md:grid-cols-2 gap-4 text-sm">
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-gray-400">Configured entity</div>
+                    <div class="font-mono break-all">{{ deye_entity }}</div>
+                </div>
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-gray-400">Home Assistant API</div>
+                    <div class="font-mono break-all">{{ ha_url }}</div>
+                </div>
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-gray-400">Entity state (live)</div>
+                    {% if ha_status and ha_status.ok %}
+                        <div><span class="font-semibold">{{ ha_status.state }}</span>{% if ha_status.unit %} {{ ha_status.unit }}{% endif %}</div>
+                        {% if ha_status.friendly_name %}<div class="text-gray-400">{{ ha_status.friendly_name }}</div>{% endif %}
+                        {% if ha_status.last_changed %}<div class="text-gray-500 text-xs">Last changed: {{ ha_status.last_changed }}</div>{% endif %}
+                    {% else %}
+                        <div class="text-red-400">{{ ha_status.error if ha_status else 'Unavailable' }}</div>
+                    {% endif %}
+                </div>
+                <div class="bg-gray-700 rounded p-3">
+                    <div class="text-gray-400">Existing schedule / last applied</div>
+                    <div><span class="font-semibold">{{ slots|length }}</span> slot(s) stored</div>
+                    <div>Last applied: {% if last_applied is not none %}{{ last_applied }} W{% else %}—{% endif %}</div>
+                    <div class="text-gray-500 text-xs break-all">DB: {{ db_path }}</div>
+                </div>
+            </div>
+        </div>
+
         <div class="grid md:grid-cols-2 gap-6 mb-8">
             <div class="bg-gray-800 rounded-lg p-6">
                 <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
@@ -45,7 +78,7 @@
             <div class="bg-gray-800 rounded-lg p-6">
                 <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
                     <i class="mdi mdi-clock-outline"></i>
-                    24-Hour Timeline
+                    24-Hour Timeline / Existing Slots
                 </h2>
                 <div class="space-y-2 max-h-64 overflow-y-auto">
                     {% for slot in slots %}
@@ -69,7 +102,7 @@
                     </div>
                     {% endfor %}
                     {% if not slots %}
-                    <p class="text-gray-400 text-center py-4">No time slots added yet</p>
+                    <p class="text-gray-400 text-center py-4">No time slots added yet (or none stored in this add-on's database).</p>
                     {% endif %}
                 </div>
                 <form action="{{ root_path }}/api/apply_now" method="post" class="mt-4">
@@ -86,11 +119,11 @@
                 Instructions
             </h2>
             <ul class="space-y-2 text-gray-300">
-                <li>• Add time slots for when you want to export power to the grid</li>
-                <li>• Power values can be set from 0 to 16 kW with 0.01 kW precision</li>
-                <li>• The scheduler checks every minute and applies the correct setting to your Deye inverter</li>
-                <li>• Slots are automatically checked for time overlaps - make sure times don't conflict</li>
-                <li>• Use toggle to enable/disable slots without deleting them</li>
+                <li>• Existing slots (if any) are loaded from this add-on’s database and shown in the timeline/status above.</li>
+                <li>• Add time slots for when you want to export power to the grid (0–16 kW, 0.01 kW precision).</li>
+                <li>• The scheduler checks every minute and applies the correct setting to your Deye inverter.</li>
+                <li>• Make sure time slots don’t overlap; use toggle to enable/disable without deleting.</li>
+                <li>• If you previously used the standalone app, its data was stored separately; re-add slots here or ask to import if you need migration.</li>
             </ul>
         </div>
     </div>
