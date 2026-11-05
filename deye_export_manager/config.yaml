@@ -1,14 +1,11 @@
 name: "Deye Export Manager"
-version: "1.0.14"
+version: "1.0.15"
 slug: "deye_export_manager"
 description: "Custom export scheduler for Deye inverters with 24-hour schedule management"
 url: "https://github.com/maverik-77/deye-export-manager"
 arch:
   - aarch64
   - amd64
-  - armhf
-  - armv7
-  - i386
 init: false
 startup: application
 boot: auto
