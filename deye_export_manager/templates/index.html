@@ -91,32 +91,34 @@
                 <i class="mdi mdi-table"></i>
                 Stored Configuration (Local Database)
             </h2>
+            <p class="text-gray-400 text-sm mb-3">Slots are ordered by start time. Edit values directly in the table and click <strong>Save</strong> to update the database.</p>
+            {% for slot in slots %}
+            <form id="edit-slot-{{ slot.id }}" action="{{ root_path }}/update_slot/{{ slot.id }}" method="post"></form>
+            {% endfor %}
             <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left">
                     <thead class="text-gray-400 border-b border-gray-600">
                         <tr>
-                            <th class="py-2 pr-3">ID</th>
-                            <th class="py-2 pr-3">Start</th>
-                            <th class="py-2 pr-3">End</th>
-                            <th class="py-2 pr-3">Power (kW)</th>
-                            <th class="py-2 pr-3">Enabled</th>
+                            <th class="py-2 pr-2">ID</th>
+                            <th class="py-2 pr-2">Start</th>
+                            <th class="py-2 pr-2">End</th>
+                            <th class="py-2 pr-2">Power (kW)</th>
+                            <th class="py-2 pr-2">Enabled</th>
                             <th class="py-2">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for slot in slots %}
-                        <tr class="border-b border-gray-700 {% if not slot.enabled %}opacity-50{% endif %}">
-                            <td class="py-2 pr-3 font-mono">{{ slot.id }}</td>
-                            <td class="py-2 pr-3 font-mono">{{ slot.start_time }}</td>
-                            <td class="py-2 pr-3 font-mono">{{ slot.end_time }}</td>
-                            <td class="py-2 pr-3 text-yellow-500 font-semibold">{{ "%.2f"|format(slot.power_kw) }}</td>
-                            <td class="py-2 pr-3">{{ 'Yes' if slot.enabled else 'No' }}</td>
-                            <td class="py-2">
-                                <form action="{{ root_path }}/toggle_slot/{{ slot.id }}" method="post" class="inline">
-                                    <button type="submit" class="p-1 hover:bg-gray-600 rounded" title="Toggle"><i class="mdi mdi-{{ 'power' if slot.enabled else 'power-off' }}"></i></button>
-                                </form>
+                        <tr class="border-b border-gray-700 {% if not slot.enabled %}opacity-60{% endif %}">
+                            <td class="py-2 pr-2 font-mono">{{ slot.id }}</td>
+                            <td class="py-2 pr-2"><input form="edit-slot-{{ slot.id }}" type="time" name="start_time" value="{{ slot.start_time }}" required class="w-28 px-2 py-1 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>
+                            <td class="py-2 pr-2"><input form="edit-slot-{{ slot.id }}" type="time" name="end_time" value="{{ slot.end_time }}" required class="w-28 px-2 py-1 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>
+                            <td class="py-2 pr-2"><input form="edit-slot-{{ slot.id }}" type="number" name="power_kw" step="0.01" min="0" max="16" value="{{ '%.2f'|format(slot.power_kw) }}" required class="w-24 px-2 py-1 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
+                            <td class="py-2 pr-2 text-center"><input form="edit-slot-{{ slot.id }}" type="checkbox" name="enabled" value="1" {% if slot.enabled %}checked{% endif %} class="h-4 w-4"></td>
+                            <td class="py-2 whitespace-nowrap">
+                                <button form="edit-slot-{{ slot.id }}" type="submit" class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium mr-1" title="Save to database"><i class="mdi mdi-content-save"></i> Save</button>
                                 <form action="{{ root_path }}/delete_slot/{{ slot.id }}" method="post" class="inline">
-                                    <button type="submit" class="p-1 hover:bg-red-600 rounded" title="Delete"><i class="mdi mdi-delete"></i></button>
+                                    <button type="submit" class="px-2 py-1 hover:bg-red-600 rounded text-xs" title="Delete"><i class="mdi mdi-delete"></i></button>
                                 </form>
                             </td>
                         </tr>
