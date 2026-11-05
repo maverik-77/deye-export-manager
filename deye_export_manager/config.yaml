@@ -2,7 +2,7 @@ name: "Deye Export Manager"
 version: "1.0.7"
 slug: "deye_export_manager"
 description: "Custom export scheduler for Deye inverters with 24-hour schedule management"
-url: "https://github.com/your-repo/deye-export-manager"
+url: "https://github.com/maverik-77/deye-export-manager"
 arch:
   - aarch64
   - amd64
