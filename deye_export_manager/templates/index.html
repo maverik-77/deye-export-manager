@@ -45,7 +45,10 @@
         <div class="flex gap-2 mb-6 border-b border-gray-700 pb-2">
             <a href="{{ root_path }}/?tab=export" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='export' %}active{% endif %}" data-tab="export"><i class="mdi mdi-calendar-clock"></i> Export</a>
             <a href="{{ root_path }}/?tab=import" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='import' %}active{% endif %}" data-tab="import"><i class="mdi mdi-tune-variant"></i> Time of Use</a>
+            <a href="{{ root_path }}/?tab=config" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='config' %}active{% endif %}" data-tab="config"><i class="mdi mdi-cog"></i> Configuration</a>
         </div>
+        {% if config_saved %}<div class="mb-4 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> {{ config_saved }} — synced and reloaded.</div>{% endif %}
+        {% if config_error %}<div class="mb-4 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Configuration error:</strong> {{ config_error }}</div>{% endif %}
 
         {% if tab == 'export' %}
         {% if mismatch %}
@@ -181,7 +184,7 @@
             </div>
         </div>
 
-        {% else %}{# import tab / Time of Use #}
+        {% elif tab == "import" %}{# Time of Use #}
         <div class="bg-red-900/35 border border-red-600/70 rounded-xl p-4 mb-6 card slide-down">
             <p class="text-red-100 text-sm"><i class="mdi mdi-alert-octagon"></i> <strong>Warning:</strong> Any change you <strong>Save &amp; sync</strong> (or confirm to sync when leaving) on this page <strong>directly updates the inverter</strong> via Home Assistant. Review values carefully before saving.</p>
         </div>
@@ -264,6 +267,82 @@
             </div>
             <p class="text-gray-500 text-xs mt-3">Writes use HA services for <code>deye_progN_*</code> entities (time/charge/mode via select, power/capacity/voltage via number, sell via switch). Always verify values after syncing.</p>
         </div>
+        {% elif tab == "config" %}
+        <div class="bg-red-900/35 border border-red-600/70 rounded-xl p-4 mb-6 card slide-down">
+            <p class="text-red-100 text-sm"><i class="mdi mdi-alert-octagon"></i> <strong>Warning:</strong> Applying changes on this page <strong>directly updates the inverter</strong> via Home Assistant. Review each value and confirm the old → new change before applying.</p>
+        </div>
+        {% for sec in config_sections %}
+        <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-6 mb-6 card">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2"><i class="mdi mdi-tune"></i> {{ sec.title }}</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg">
+                    <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
+                        <tr>
+                            <th class="py-2 px-2">Setting</th>
+                            <th class="py-2 px-2">Entity</th>
+                            <th class="py-2 px-2">Current</th>
+                            <th class="py-2 px-2">New value</th>
+                            <th class="py-2 px-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in sec.entities %}
+                        {% set is_ro = e.readonly|default(false) %}
+                        {% set cur = e.state if e.state not in [none,'unknown','unavailable'] else '' %}
+                        <tr class="border-b border-gray-700 slot-row config-row {% if not e.ok %}opacity-70{% endif %}" data-entity="{{ e.entity_id|e }}" data-label="{{ e.label|e }}" data-domain="{{ e.domain|e }}" data-orig="{{ cur|e }}" data-readonly="{{ '1' if is_ro else '0' }}">
+                            <td class="py-2 px-2 font-medium text-gray-200">{{ e.label }}{% if is_ro %} <span class="text-xs text-gray-500">(status)</span>{% endif %}</td>
+                            <td class="py-2 px-2 font-mono text-xs text-gray-400 break-all">{{ e.entity_id }}</td>
+                            <td class="py-2 px-2">
+                                {% if e.ok %}
+                                    <span class="font-semibold">{{ e.state }}</span>{% if e.unit %} <span class="text-gray-400">{{ e.unit }}</span>{% endif %}
+                                    {% if e.friendly_name %}<div class="text-xs text-gray-500">{{ e.friendly_name }}</div>{% endif %}
+                                {% else %}
+                                    <span class="text-red-400 text-xs">{{ e.error or 'Unavailable' }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-2 px-2">
+                                {% if is_ro %}
+                                    <span class="text-gray-500 text-xs">Read-only</span>
+                                {% elif e.domain == 'switch' %}
+                                    {% set onv = 'on' if e.state in ['on','1','true','True'] else 'off' %}
+                                    <select form="cfg-form-{{ loop.index0 }}-{{ sec.id }}" name="value" class="field config-input px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                        <option value="on" {% if onv=='on' %}selected{% endif %}>on</option>
+                                        <option value="off" {% if onv=='off' %}selected{% endif %}>off</option>
+                                    </select>
+                                {% elif e.domain == 'select' %}
+                                    <select form="cfg-form-{{ loop.index0 }}-{{ sec.id }}" name="value" class="field config-input px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none min-w-[10rem]" {% if not e.ok %}disabled{% endif %}>
+                                        {% if e.options %}
+                                            {% for opt in e.options %}<option value="{{ opt }}" {% if e.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+                                        {% else %}
+                                            <option value="{{ cur }}">{{ cur or '—' }}</option>
+                                        {% endif %}
+                                    </select>
+                                {% elif e.domain == 'number' %}
+                                    <input form="cfg-form-{{ loop.index0 }}-{{ sec.id }}" type="number" name="value" value="{{ cur }}" {% if e.step is not none %}step="{{ e.step }}"{% else %}step="any"{% endif %} {% if e.min is not none %}min="{{ e.min }}"{% endif %} {% if e.max is not none %}max="{{ e.max }}"{% endif %} class="field config-input w-40 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" {% if not e.ok %}disabled{% endif %}>
+                                    {% if e.unit %}<span class="text-xs text-gray-400 ml-1">{{ e.unit }}</span>{% endif %}
+                                {% elif e.domain == 'binary_sensor' %}
+                                    <span class="text-gray-500 text-xs">Read-only</span>
+                                {% else %}
+                                    <span class="text-gray-500 text-xs">{{ e.domain }}</span>
+                                {% endif %}
+                                <input form="cfg-form-{{ loop.index0 }}-{{ sec.id }}" type="hidden" name="entity_id" value="{{ e.entity_id }}">
+                            </td>
+                            <td class="py-2 px-2">
+                                {% if not is_ro and e.domain in ['switch','select','number'] %}
+                                <form id="cfg-form-{{ loop.index0 }}-{{ sec.id }}" action="{{ root_path }}/config/apply" method="post" class="config-form">
+                                    <button type="submit" class="config-apply-btn btn px-3 py-1.5 rounded-md text-sm font-medium bg-gray-700 text-gray-400 cursor-not-allowed opacity-60" disabled title="Change the value to enable Apply"><i class="mdi mdi-upload"></i> Apply</button>
+                                </form>
+                                {% else %}
+                                <span class="text-gray-500 text-xs">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
         {% endif %}
     </div>
 
@@ -284,7 +363,21 @@
 
     <div id="enable-toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-amber-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg hidden z-50"><i class="mdi mdi-lock"></i> Enable this row before editing.</div>
 
-    <div id="save-confirm-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+    
+
+    <div id="config-confirm-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-xl w-full card slide-down max-h-[90vh] overflow-auto">
+            <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-alert-octagon text-amber-400"></i> Confirm inverter update</h3>
+            <p class="text-gray-300 text-sm mb-3">Applying this change will <strong>directly update the inverter</strong> via Home Assistant.</p>
+            <div id="config-confirm-body" class="text-sm"></div>
+            <div class="flex flex-wrap gap-2 mt-4">
+                <button id="config-confirm-yes" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-sm font-medium">Confirm &amp; apply</button>
+                <button id="config-confirm-no" class="btn bg-gray-600 hover:bg-gray-500 text-white py-2 px-3 rounded-lg text-sm font-medium">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+<div id="save-confirm-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
         <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-3xl w-full card slide-down max-h-[90vh] overflow-auto">
             <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-content-save-alert text-amber-400"></i> Confirm save &amp; sync (direct inverter update)</h3>
             <p class="text-gray-300 text-sm mb-4">Review all values for this row. Saving will <strong>directly update the inverter</strong> via Home Assistant.</p>
@@ -479,6 +572,84 @@
           if(pendingHref) window.location=pendingHref; else window.location.reload();
         } catch(err){ if(status) status.textContent='Error: '+err.message+'. You can cancel and save rows individually.'; }
       });
+
+      // Configuration tab: per-entity Apply disabled until changed + old→new confirmation
+      (function(){
+        var pendingConfigForm = null;
+        var cfgModal = document.getElementById('config-confirm-modal');
+        function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function norm(v){ return String(v==null?'':v).trim(); }
+        function getCfgInput(form){
+          var fid = form.getAttribute('id');
+          if(!fid) return null;
+          return document.querySelector('.config-input[form="'+fid+'"][name="value"]');
+        }
+        function getCfgRow(form){ return form.closest('.config-row'); }
+        function setCfgBtn(form, changed){
+          var btn = form.querySelector('.config-apply-btn');
+          if(!btn) return;
+          btn.disabled = !changed;
+          btn.classList.toggle('cursor-not-allowed', !changed);
+          btn.classList.toggle('opacity-60', !changed);
+          btn.classList.toggle('bg-gray-700', !changed);
+          btn.classList.toggle('text-gray-400', !changed);
+          btn.classList.toggle('bg-green-600', !!changed);
+          btn.classList.toggle('hover:bg-green-700', !!changed);
+          btn.classList.toggle('text-white', !!changed);
+          btn.classList.toggle('shadow-sm', !!changed);
+          btn.title = changed ? 'Apply this change to the inverter (confirmation required)' : 'Change the value to enable Apply';
+        }
+        function refreshCfgForm(form){
+          var row=getCfgRow(form), inp=getCfgInput(form);
+          if(!row || !inp || inp.disabled) { setCfgBtn(form,false); return; }
+          var orig = norm(row.getAttribute('data-orig'));
+          var cur = norm(inp.value);
+          setCfgBtn(form, orig !== cur);
+        }
+        function showCfgModal(form){
+          pendingConfigForm = form;
+          var row=getCfgRow(form), inp=getCfgInput(form);
+          if(!row || !inp) return;
+          var label = row.getAttribute('data-label') || row.getAttribute('data-entity') || 'Setting';
+          var entity = row.getAttribute('data-entity') || '';
+          var oldv = norm(row.getAttribute('data-orig'));
+          var newv = norm(inp.value);
+          var body = document.getElementById('config-confirm-body');
+          if(body){
+            body.innerHTML = '<div class="mb-2 text-gray-200"><strong>'+esc(label)+'</strong><div class="text-xs text-gray-400 font-mono break-all">'+esc(entity)+'</div></div>'
+              + '<table class="w-full text-left border-collapse"><thead><tr class="text-gray-400 border-b border-gray-600"><th class="py-1 pr-3">Old</th><th class="py-1">New</th></tr></thead><tbody><tr>'
+              + '<td class="py-1 pr-3 font-mono">'+(oldv?esc(oldv):'<span class="text-gray-500">—</span>')+'</td>'
+              + '<td class="py-1 font-mono font-semibold text-amber-200 bg-amber-900/30">'+(newv?esc(newv):'<span class="text-gray-500">—</span>')+'</td>'
+              + '</tr></tbody></table>';
+          }
+          if(cfgModal){ cfgModal.classList.remove('hidden'); cfgModal.classList.add('flex'); }
+        }
+        function hideCfgModal(){ pendingConfigForm=null; if(cfgModal){ cfgModal.classList.add('hidden'); cfgModal.classList.remove('flex'); } }
+        var noBtn=document.getElementById('config-confirm-no'); if(noBtn) noBtn.addEventListener('click', hideCfgModal);
+        var yesBtn=document.getElementById('config-confirm-yes'); if(yesBtn) yesBtn.addEventListener('click', function(){
+          if(!pendingConfigForm) return hideCfgModal();
+          var f=pendingConfigForm; pendingConfigForm=null; hideCfgModal();
+          f.dataset.confirmed='1'; f.submit();
+        });
+        if(cfgModal){ cfgModal.addEventListener('click', function(ev){ if(ev.target===cfgModal) hideCfgModal(); }); }
+        document.querySelectorAll('.config-form').forEach(function(form){
+          var inp=getCfgInput(form);
+          if(inp){
+            inp.addEventListener('change', function(){ refreshCfgForm(form); });
+            inp.addEventListener('input', function(){ refreshCfgForm(form); });
+          }
+          refreshCfgForm(form);
+          form.addEventListener('submit', function(ev){
+            if(form.dataset.confirmed==='1') return;
+            var row=getCfgRow(form), cinp=getCfgInput(form);
+            if(!row || !cinp) return;
+            if(norm(row.getAttribute('data-orig')) === norm(cinp.value)){ ev.preventDefault(); return; }
+            ev.preventDefault();
+            showCfgModal(form);
+          });
+        });
+      })();
+
     })();
     </script>
 </body>

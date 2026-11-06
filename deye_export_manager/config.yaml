@@ -1,5 +1,5 @@
 name: "Deye Export Manager"
-version: "1.0.22"
+version: "1.0.23"
 slug: "deye_export_manager"
 description: "Custom export scheduler for Deye inverters with 24-hour schedule management"
 url: "https://github.com/maverik-77/deye-export-manager"

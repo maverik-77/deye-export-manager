@@ -223,6 +223,97 @@ TOU_PROGRAM_FIELDS = [
     ("voltage", "number", "number.deye_prog{n}_voltage"),
 ]
 
+CONFIG_SECTIONS = [
+    {
+        "id": "battery",
+        "title": "Battery Configuration",
+        "entities": [
+            {"entity_id": "select.deye_bms_protocol", "label": "BMS Protocol", "domain": "select"},
+            {"entity_id": "number.deye_battery_max_charge_current", "label": "Max Charge Current", "domain": "number"},
+            {"entity_id": "number.deye_battery_max_discharge_current", "label": "Max Discharge Current", "domain": "number"},
+            {"entity_id": "number.deye_grid_charge_battery_current", "label": "Grid Charge Battery Current", "domain": "number"},
+            {"entity_id": "number.deye_battery_equalization_voltage", "label": "Equalization Voltage", "domain": "number"},
+            {"entity_id": "number.deye_battery_absorption_voltage", "label": "Absorption Voltage", "domain": "number"},
+            {"entity_id": "number.deye_battery_float_voltage", "label": "Float Voltage", "domain": "number"},
+            {"entity_id": "number.deye_battery_shutdown_capacity", "label": "Shutdown Capacity", "domain": "number"},
+            {"entity_id": "number.deye_battery_restart_capacity", "label": "Restart Capacity", "domain": "number"},
+            {"entity_id": "number.deye_battery_low_capacity", "label": "Low Capacity", "domain": "number"},
+            {"entity_id": "number.deye_battery_shutdown_voltage", "label": "Shutdown Voltage", "domain": "number"},
+            {"entity_id": "number.deye_battery_restart_voltage", "label": "Restart Voltage", "domain": "number"},
+            {"entity_id": "number.deye_battery_low_voltage", "label": "Low Voltage", "domain": "number"},
+        ],
+    },
+    {
+        "id": "grid",
+        "title": "Grid Settings",
+        "entities": [
+            {"entity_id": "switch.deye_grid_charge_enabled", "label": "Grid Charge Enabled", "domain": "switch"},
+            {"entity_id": "switch.deye_grid_always_on", "label": "Grid Always On", "domain": "switch"},
+            {"entity_id": "switch.deye_grid_peak_shaving", "label": "Grid Peak Shaving", "domain": "switch"},
+            {"entity_id": "number.deye_grid_peak_shaving_power", "label": "Grid Peak Shaving Power", "domain": "number"},
+            {"entity_id": "number.deye_grid_trickle_feed_power", "label": "Grid Trickle Feed Power", "domain": "number"},
+        ],
+    },
+    {
+        "id": "mode",
+        "title": "Mode and Control",
+        "entities": [
+            {"entity_id": "switch.deye_inverter_enabled", "label": "Inverter Enabled", "domain": "switch"},
+            {"entity_id": "switch.deye_use_timer", "label": "Use Timer", "domain": "switch"},
+            {"entity_id": "switch.deye_priority_load", "label": "Priority Load", "domain": "switch"},
+            {"entity_id": "switch.deye_solar_export", "label": "Solar Export", "domain": "switch"},
+            {"entity_id": "switch.deye_peak_shaving", "label": "Peak Shaving", "domain": "switch"},
+            {"entity_id": "switch.deye_gen_peak_shaving", "label": "Gen Peak Shaving", "domain": "switch"},
+            {"entity_id": "number.deye_gen_peak_shaving_power", "label": "Gen Peak Shaving Power", "domain": "number"},
+            {"entity_id": "select.deye_load_limit", "label": "Load Limit", "domain": "select"},
+            {"entity_id": "select.deye_aux_port_usage", "label": "AUX Port Usage", "domain": "select"},
+            {"entity_id": "number.deye_max_solar_power", "label": "Max Solar Power", "domain": "number"},
+            {"entity_id": "number.deye_max_sell_power", "label": "Max Sell Power", "domain": "number"},
+        ],
+    },
+    {
+        "id": "status",
+        "title": "Inverter Status",
+        "entities": [
+            {"entity_id": "binary_sensor.deye_grid_connected", "label": "Grid Connected", "domain": "binary_sensor", "readonly": True},
+            {"entity_id": "switch.deye_inverter_enabled", "label": "Inverter Enabled (status)", "domain": "switch", "readonly": True},
+            {"entity_id": "switch.deye_near_realtime", "label": "Near Realtime", "domain": "switch"},
+        ],
+    },
+]
+
+
+async def get_config_sections():
+    entity_ids = []
+    for sec in CONFIG_SECTIONS:
+        for e in sec["entities"]:
+            entity_ids.append(e["entity_id"])
+    states = await asyncio.gather(*(get_entity_state(eid) for eid in entity_ids))
+    by_eid = {st.get("entity_id"): st for st in states}
+    # also key by requested if entity_id differs? get_entity_state returns entity_id
+    out = []
+    for sec in CONFIG_SECTIONS:
+        items = []
+        for e in sec["entities"]:
+            st = by_eid.get(e["entity_id"]) or {"ok": False, "error": "Missing", "entity_id": e["entity_id"], "state": None, "attributes": {}}
+            attrs = st.get("attributes") or {}
+            items.append({
+                **e,
+                "ok": st.get("ok"),
+                "error": st.get("error"),
+                "state": st.get("state"),
+                "attributes": attrs,
+                "options": attrs.get("options"),
+                "min": attrs.get("min"),
+                "max": attrs.get("max"),
+                "step": attrs.get("step"),
+                "unit": attrs.get("unit_of_measurement"),
+                "friendly_name": attrs.get("friendly_name"),
+            })
+        out.append({"id": sec["id"], "title": sec["title"], "entities": items})
+    return out
+
+
 
 def _tou_time_sort_key(state):
     try:
@@ -560,11 +651,14 @@ async def index(request: Request):
     saved = request.query_params.get("saved")
     save_error = request.query_params.get("error")
     tab = request.query_params.get("tab") or "export"
-    if tab not in ("export", "import"):
+    if tab not in ("export", "import", "config"):
         tab = "export"
     tou_programs = await get_tou_programs()
     import_saved = request.query_params.get("import_saved")
     import_error = request.query_params.get("import_error")
+    config_sections = await get_config_sections()
+    config_saved = request.query_params.get("config_saved")
+    config_error = request.query_params.get("config_error")
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -591,6 +685,9 @@ async def index(request: Request):
         tou_programs=tou_programs,
         import_saved=import_saved,
         import_error=import_error,
+        config_sections=config_sections,
+        config_saved=config_saved,
+        config_error=config_error,
     ))
 
 @app.post("/add_slot")
@@ -925,6 +1022,60 @@ async def import_save_program(request: Request, n: int, time: str = Form(""), po
         return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(msg[:700])}", status_code=303)
     return RedirectResponse(url=f"{root_path}/?tab=import&import_saved={n}", status_code=303)
 
+
+
+@app.post("/config/apply")
+async def config_apply(request: Request, entity_id: str = Form(...), value: str = Form("")):
+    root_path = request.scope.get("root_path", "")
+    from urllib.parse import quote
+    # Allowlist: only entities defined in Configuration tab
+    allowed = {}
+    for sec in CONFIG_SECTIONS:
+        for e in sec["entities"]:
+            allowed[e["entity_id"]] = e
+    meta = allowed.get(entity_id)
+    if not meta:
+        return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote('Entity not allowed for Configuration tab.')}", status_code=303)
+    if meta.get("readonly"):
+        return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': read-only status field.')}", status_code=303)
+    domain = meta.get("domain") or entity_id.split(".", 1)[0]
+    st = await get_entity_state(entity_id)
+
+    if domain == "switch" or entity_id.startswith("switch."):
+        on = str(value).lower() in ("on", "1", "true", "yes")
+        ok, err = await ha_call_service("switch", "turn_on" if on else "turn_off", {"entity_id": entity_id})
+        new_label = "on" if on else "off"
+    elif domain == "select" or entity_id.startswith("select."):
+        if value is None or str(value).strip() == "":
+            return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': missing value')}", status_code=303)
+        # Fail closed when options cannot be verified
+        if not st.get("ok"):
+            return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': cannot verify options because entity state could not be read (' + str(st.get('error') or 'unavailable') + ')')}", status_code=303)
+        options = (st.get("attributes") or {}).get("options") or []
+        if not options:
+            return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': cannot verify options (no options reported by Home Assistant)')}", status_code=303)
+        if value not in options:
+            return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': invalid option')}", status_code=303)
+        ok, err = await ha_call_service("select", "select_option", {"entity_id": entity_id, "option": value})
+        new_label = value
+    elif domain == "number" or entity_id.startswith("number."):
+        try:
+            v = float(value)
+        except Exception:
+            return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': value must be a number')}", status_code=303)
+        a = st.get("attributes") or {}
+        if st.get("ok"):
+            if a.get("min") is not None: v = max(float(a.get("min")), v)
+            if a.get("max") is not None: v = min(float(a.get("max")), v)
+        ok, err = await ha_call_service("number", "set_value", {"entity_id": entity_id, "value": v})
+        new_label = str(v)
+    else:
+        return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': unsupported domain')}", status_code=303)
+
+    if not ok:
+        return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': ' + str(err))}", status_code=303)
+    label = meta.get("label") or entity_id
+    return RedirectResponse(url=f"{root_path}/?tab=config&config_saved={quote(label + ' = ' + new_label)}", status_code=303)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8099))
