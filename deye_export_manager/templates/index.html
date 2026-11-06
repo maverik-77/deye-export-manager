@@ -208,7 +208,16 @@
                     <tbody id="import-tbody">
                         {% for p in tou_programs %}
                         {% set f = p.fields %}
-                        <tr class="border-b border-gray-700 slot-row import-row" data-prog="{{ p.n }}" data-form-id="import-form-{{ p.n }}">
+                        {% set orig_time = f.time.state if f.time.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_power = f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_capacity = f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_charge = f.charge.state if f.charge.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_mode = f.mode.state if f.mode.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_sell = 'on' if f.sell.state in ['on','1','true','True'] else 'off' %}
+                        {% set orig_voltage = f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' %}
+                        <tr class="border-b border-gray-700 slot-row import-row" data-prog="{{ p.n }}" data-form-id="import-form-{{ p.n }}"
+                            data-orig-time="{{ orig_time|e }}" data-orig-power="{{ orig_power|e }}" data-orig-capacity="{{ orig_capacity|e }}"
+                            data-orig-charge="{{ orig_charge|e }}" data-orig-mode="{{ orig_mode|e }}" data-orig-sell="{{ orig_sell|e }}" data-orig-voltage="{{ orig_voltage|e }}">
                             <td class="py-2 px-2 font-mono font-semibold">#{{ p.n }}{% if not f.time.ok %}<div class="text-red-400 text-xs font-normal">read issue</div>{% endif %}</td>
                             <td class="py-2 px-2">
                                 <form id="import-form-{{ p.n }}" action="{{ root_path }}/import/save_program/{{ p.n }}" method="post" class="import-form"></form>
@@ -246,7 +255,7 @@
                             </td>
                             <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="voltage" step="{{ f.voltage.step or 0.1 }}" min="{{ f.voltage.min if f.voltage.min is not none else 0 }}" max="{{ f.voltage.max if f.voltage.max is not none else 100 }}" value="{{ f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
                             <td class="py-2 px-2 whitespace-nowrap">
-                                <button form="import-form-{{ p.n }}" type="submit" class="btn bg-green-600 hover:bg-green-700 text-white py-1.5 px-3 rounded-lg text-sm font-medium shadow-sm"><i class="mdi mdi-content-save-move"></i> Save &amp; sync</button>
+                                <button form="import-form-{{ p.n }}" type="submit" disabled class="btn save-sync-btn bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-1.5 px-3 rounded-lg text-sm font-medium shadow-sm" data-prog="{{ p.n }}"><i class="mdi mdi-content-save-move"></i> Save &amp; sync</button>
                             </td>
                         </tr>
                         {% endfor %}
@@ -268,6 +277,19 @@
                 <button id="leave-cancel" class="btn bg-amber-700 hover:bg-amber-600 text-white py-2 px-3 rounded-lg text-sm font-medium">Cancel</button>
             </div>
             <p id="leave-status" class="text-xs text-gray-400 mt-3"></p>
+        </div>
+    </div>
+
+    
+    <div id="save-confirm-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-3xl w-full card slide-down max-h-[90vh] overflow-auto">
+            <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-content-save-alert text-amber-400"></i> Confirm save &amp; sync (direct inverter update)</h3>
+            <p class="text-gray-300 text-sm mb-4">Review all values for this row. Saving will <strong>directly update the inverter</strong> via Home Assistant.</p>
+            <div id="save-confirm-body" class="text-sm"></div>
+            <div class="flex flex-wrap gap-2 mt-4">
+                <button id="save-confirm-yes" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-sm font-medium">Confirm &amp; save to inverter</button>
+                <button id="save-confirm-no" class="btn bg-gray-600 hover:bg-gray-500 text-white py-2 px-3 rounded-lg text-sm font-medium">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -310,16 +332,70 @@
         });
       }
 
-      // Import dirty tracking + leave prompt
+      // Import dirty tracking, save button enable/disable, confirmation
       var dirty = {};
-      function markDirty(n, val){ dirty[n]=val; var row=document.querySelector('.import-row[data-prog="'+n+'"]'); if(row) row.classList.toggle('row-dirty', !!val); }
+      var FIELDS = [['time','Time'],['power','Power (W)'],['capacity','Capacity (%)'],['charge','Grid charge'],['mode','Mode'],['sell','Sell'],['voltage','Voltage (V)']];
+      function getRowVals(row){
+        var vals={};
+        FIELDS.forEach(function(f){ var el=row.querySelector('[name="'+f[0]+'"]'); vals[f[0]] = el ? String(el.value) : ''; });
+        return vals;
+      }
+      function getOrigVals(row){
+        var vals={};
+        FIELDS.forEach(function(f){ vals[f[0]] = String(row.getAttribute('data-orig-'+f[0]) || ''); });
+        return vals;
+      }
+      function isRowChanged(row){
+        var o=getOrigVals(row), c=getRowVals(row);
+        return FIELDS.some(function(f){ return String(o[f[0]]) !== String(c[f[0]]); });
+      }
+      function refreshRowState(row){
+        var changed=isRowChanged(row); var n=row.getAttribute('data-prog');
+        dirty[n]=changed; row.classList.toggle('row-dirty', !!changed);
+        var btn=row.querySelector('.save-sync-btn'); if(btn) btn.disabled = !changed;
+      }
+      function refreshAllRows(){ document.querySelectorAll('.import-row').forEach(refreshRowState); }
       function hasDirty(){ return Object.keys(dirty).some(function(k){ return dirty[k]; }); }
       function dirtyForms(){ return Array.prototype.filter.call(document.querySelectorAll('.import-form'), function(f){ var row=f.closest('.import-row'); return row && dirty[row.getAttribute('data-prog')]; }); }
       document.querySelectorAll('.import-field').forEach(function(el){
-        el.addEventListener('change', function(){ var row=el.closest('.import-row'); if(row) markDirty(row.getAttribute('data-prog'), true); });
-        el.addEventListener('input', function(){ var row=el.closest('.import-row'); if(row) markDirty(row.getAttribute('data-prog'), true); });
+        el.addEventListener('change', function(){ var row=el.closest('.import-row'); if(row) refreshRowState(row); });
+        el.addEventListener('input', function(){ var row=el.closest('.import-row'); if(row) refreshRowState(row); });
       });
-      document.querySelectorAll('.import-form').forEach(function(f){ f.addEventListener('submit', function(){ var row=f.closest('.import-row'); if(row) markDirty(row.getAttribute('data-prog'), false); }); });
+      refreshAllRows();
+
+      var pendingSaveForm = null;
+      var saveModal = document.getElementById('save-confirm-modal');
+      function showSaveModal(form, row){
+        pendingSaveForm = form;
+        var o=getOrigVals(row), c=getRowVals(row), n=row.getAttribute('data-prog');
+        var html = '<p class="mb-2 text-gray-300">Program <strong>#'+n+'</strong></p><div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="text-gray-400 border-b border-gray-600"><th class="py-1 pr-3">Field</th><th class="py-1 pr-3">Old value</th><th class="py-1">New value</th></tr></thead><tbody>';
+        FIELDS.forEach(function(f){
+          var changed = String(o[f[0]]) !== String(c[f[0]]);
+          var cls = changed ? ' class="bg-amber-900/30"' : '';
+          var oldv = String(o[f[0]]||'—').replace(/</g,'&lt;');
+          var newv = String(c[f[0]]||'—').replace(/</g,'&lt;');
+          html += '<tr'+cls+'><td class="py-1 pr-3 text-gray-300">'+f[1]+(changed?' <span class="text-amber-400">*</span>':'')+'</td><td class="py-1 pr-3 font-mono">'+oldv+'</td><td class="py-1 font-mono font-semibold'+(changed?' text-amber-200':'')+'">'+newv+'</td></tr>';
+        });
+        html += '</tbody></table></div><p class="text-xs text-gray-400 mt-2">* changed</p>';
+        var body=document.getElementById('save-confirm-body'); if(body) body.innerHTML = html;
+        if(saveModal){ saveModal.classList.remove('hidden'); saveModal.classList.add('flex'); }
+      }
+      function hideSaveModal(){ pendingSaveForm=null; if(saveModal){ saveModal.classList.add('hidden'); saveModal.classList.remove('flex'); } }
+      var saveNo=document.getElementById('save-confirm-no'); if(saveNo) saveNo.addEventListener('click', hideSaveModal);
+      var saveYes=document.getElementById('save-confirm-yes'); if(saveYes) saveYes.addEventListener('click', function(){
+        if(!pendingSaveForm) return hideSaveModal();
+        var f=pendingSaveForm; pendingSaveForm=null; hideSaveModal();
+        f.dataset.confirmed = '1'; f.submit();
+      });
+      document.querySelectorAll('.import-form').forEach(function(f){
+        f.addEventListener('submit', function(ev){
+          if(f.dataset.confirmed === '1'){ var row=f.closest('.import-row'); if(row){ dirty[row.getAttribute('data-prog')]=false; } return; }
+          var row=f.closest('.import-row'); if(!row) return;
+          if(!isRowChanged(row)){ ev.preventDefault(); return; }
+          ev.preventDefault();
+          showSaveModal(f, row);
+        });
+      });
       window.addEventListener('beforeunload', function(e){ if(hasDirty()){ e.preventDefault(); e.returnValue=''; } });
 
       var pendingHref = null;
