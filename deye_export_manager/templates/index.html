@@ -31,12 +31,30 @@
       .tab-btn { transition: all .2s ease; }
       .tab-btn.active { background: rgba(234,179,8,.15); color: #facc15; border-color: rgba(234,179,8,.5); }
       .row-dirty td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+      .table-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+      .break-any { overflow-wrap: anywhere; word-break: break-word; }
+      @media (min-width:640px){ .chart-box{ height:250px !important; } }
+      @media (min-width:768px){ .chart-box{ height:280px !important; } }
+      @media (max-width: 767px) {
+        .resp-table { min-width: 0 !important; }
+        .resp-table thead { display: none; }
+        .resp-table, .resp-table tbody, .resp-table tr, .resp-table td { display: block; width: 100%; }
+        .resp-table tbody { display: block; }
+        .resp-table tr { margin: 0 0 .75rem 0; border: 1px solid rgba(75,85,99,.65); border-radius: .75rem; padding: .5rem .5rem .25rem; background: rgba(17,24,39,.35); overflow: hidden; }
+        .resp-table td { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; padding: .45rem .15rem; border-bottom: 1px solid rgba(75,85,99,.22); white-space: normal !important; }
+        .resp-table td:last-child { border-bottom: 0; padding-bottom: .15rem; }
+        .resp-table td[data-label]:not([data-label=""])::before { content: attr(data-label); flex: 0 0 40%; max-width: 40%; font-weight: 600; color: #9ca3af; font-size: .8125rem; line-height: 1.25rem; padding-top: .2rem; }
+        .resp-table td[data-label=""]::before, .resp-table td:not([data-label])::before { display: none; }
+        .resp-table td[data-label]:not([data-label=""]) > :not(script):not(style) { flex: 1 1 auto; min-width: 0; }
+        .resp-table td .field, .resp-table td select, .resp-table td input[type="time"], .resp-table td input[type="number"], .resp-table td input[type="text"] { width: 100% !important; max-width: 100%; }
+        .resp-table td form { margin: 0; }
+      }
     </style>
 </head>
 <body class="bg-gradient-to-b from-gray-950 via-gray-900 to-gray-900 text-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8 max-w-7xl fade-in">
+    <div class="container mx-auto px-3 sm:px-4 py-4 sm:py-8 max-w-7xl fade-in">
         <header class="mb-6">
-            <h1 class="text-3xl font-bold flex items-center gap-2">
+            <h1 class="text-2xl sm:text-3xl font-bold flex items-center gap-2 flex-wrap break-any">
                 <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-yellow-500/15 text-yellow-400 pulse-dot"><i class="mdi mdi-transmission-tower-export"></i></span>
                 Deye Manager
             </h1>
@@ -67,7 +85,7 @@
                         {% for item in g['items'] %}
                         <div class="flex items-start justify-between gap-2 border-b border-gray-700/40 pb-1">
                             <span class="text-gray-400">{{ item.label }}</span>
-                            <span class="text-right font-semibold {% if not item.ok %}text-red-400{% elif item.state in ['on','ON','1','true'] %}text-green-400{% endif %}">
+                            <span class="text-right font-semibold break-any min-w-0 {% if not item.ok %}text-red-400{% elif item.state in ['on','ON','1','true'] %}text-green-400{% endif %}">
                                 {% if item.ok %}{{ item.state }}{% if item.unit %} <span class="text-gray-400 font-normal">{{ item.unit }}</span>{% endif %}{% else %}<span class="text-xs font-normal">{{ item.error or 'Unavailable' }}</span>{% endif %}
                             </span>
                         </div>
@@ -180,8 +198,9 @@
             <form id="delete-slot-{{ slot.id }}" action="{{ root_path }}/delete_slot/{{ slot.id }}" method="post"></form>
             {% endfor %}
             <form id="save-all-slots" action="{{ root_path }}/save_slots" method="post"></form>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm text-left overflow-hidden rounded-lg">
+            <p class="md:hidden text-xs text-gray-400 mb-2"><i class="mdi mdi-gesture-swipe-horizontal"></i> On phones, each slot is shown as a card. Use <strong>Save schedule</strong> after changes.</p>
+            <div class="overflow-x-auto table-scroll">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg resp-table">
                     <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
                         <tr>
                             <th class="py-2 pr-2 w-8" title="Drag to reorder"><i class="mdi mdi-drag"></i></th>
@@ -198,35 +217,35 @@
                     <tbody id="slots-tbody">
                         {% for slot in slots %}
                         <tr class="border-b border-gray-700/70 slot-row export-row {% if slot.enabled %}bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60{% else %}bg-gray-900/40 opacity-60 border-l-2 border-l-gray-600/50{% endif %}" data-slot-enabled="{{ 1 if slot.enabled else 0 }}">
-                            <td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>
-                            <td class="py-2 pr-2 font-mono">{{ slot.id }}<input form="save-all-slots" type="hidden" name="id" value="{{ slot.id }}"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="{{ slot.start_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="{{ slot.end_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="{{ '%.0f'|format(slot.power_kw * 1000) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="{{ slot.default_export_w|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC is at/below threshold or unavailable"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="{{ slot.battery_soc_pct|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold (0–100%)"></td>
-                            <td class="py-2 pr-2">
+                            <td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" data-label="Reorder" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>
+                            <td class="py-2 pr-2 font-mono" data-label="ID">{{ slot.id }}<input form="save-all-slots" type="hidden" name="id" value="{{ slot.id }}"></td>
+                            <td class="py-2 pr-2" data-label="Start"><input form="save-all-slots" type="time" name="start_time" value="{{ slot.start_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2" data-label="End"><input form="save-all-slots" type="time" name="end_time" value="{{ slot.end_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2" data-label="Power (W)"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="{{ '%.0f'|format(slot.power_kw * 1000) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2" data-label="Default export (W)"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="{{ slot.default_export_w|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC is at/below threshold or unavailable"></td>
+                            <td class="py-2 pr-2" data-label="Battery %"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="{{ slot.battery_soc_pct|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold (0–100%)"></td>
+                            <td class="py-2 pr-2" data-label="Enabled">
                                 <select form="save-all-slots" name="enabled" class="field slot-enabled-select px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     <option value="1" {% if slot.enabled %}selected{% endif %}>Yes</option>
                                     <option value="0" {% if not slot.enabled %}selected{% endif %}>No</option>
                                 </select>
                             </td>
-                            <td class="py-2 whitespace-nowrap">
+                            <td class="py-2 whitespace-nowrap" data-label="Actions">
                                 <button form="delete-slot-{{ slot.id }}" type="submit" class="btn px-2 py-1 hover:bg-red-600/90 rounded-md text-xs" title="Delete"><i class="mdi mdi-delete"></i> Delete</button>
                             </td>
                         </tr>
                         {% endfor %}
                         {% if not slots %}
-                        <tr><td colspan="9" class="py-4 text-center text-gray-400">No configuration stored in local database. Click <strong>Add row</strong>, enter slots, then <strong>Save schedule</strong> (enabled slots must cover 24h).</td></tr>
+                        <tr><td colspan="9" data-label="" class="py-4 text-center text-gray-400 block w-full">No configuration stored in local database. Click <strong>Add row</strong>, enter slots, then <strong>Save schedule</strong> (enabled slots must cover 24h).</td></tr>
                         {% endif %}
                     </tbody>
                 </table>
             </div>
-            <div class="mt-4 flex flex-wrap gap-2 items-center">
-                <button type="button" id="add-row-btn" class="btn bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-table-row-plus-after"></i> Add row</button>
-                <button form="save-all-slots" type="submit" class="btn bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-content-save"></i> Save schedule</button>
-                <form action="{{ root_path }}/api/apply_now" method="post" class="inline">
-                    <button type="submit" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-upload"></i> Apply schedule to inverter now</button>
+            <div class="mt-4 flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:items-center">
+                <button type="button" id="add-row-btn" class="btn w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-table-row-plus-after"></i> Add row</button>
+                <button form="save-all-slots" type="submit" class="btn w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-content-save"></i> Save schedule</button>
+                <form action="{{ root_path }}/api/apply_now" method="post" class="w-full sm:w-auto">
+                    <button type="submit" class="btn w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-upload"></i> Apply schedule to inverter now</button>
                 </form>
             </div>
         </div>
@@ -240,8 +259,9 @@
             <p class="text-gray-400 text-sm mb-4">Shows the <strong>6 TOU programs</strong> (<code>deye_prog1</code>–<code>deye_prog6</code>) pulled <strong>live from Home Assistant/inverter on every page load</strong>. No local copy is kept. Rows are ordered by program time. Edit fields and use <strong>Save &amp; sync</strong> on each row to write to the inverter. If you leave with unsaved changes, you’ll be asked whether to sync them.</p>
             {% if tou_saved %}<div class="mb-3 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> Program {{ tou_saved }} synced to inverter (live values reloaded).</div>{% endif %}
             {% if tou_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Time of Use sync issue:</strong> {{ tou_error }}</div>{% endif %}
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm text-left overflow-hidden rounded-lg min-w-[1100px]">
+            <p class="md:hidden text-xs text-gray-400 mb-2"><i class="mdi mdi-gesture-swipe-horizontal"></i> On phones, each program is shown as a card. On larger screens, swipe/scroll if needed.</p>
+            <div class="overflow-x-auto table-scroll">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg min-w-[1100px] lg:min-w-[1100px] resp-table">
                     <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
                         <tr>
                             <th class="py-2 px-2">Prog</th>
@@ -268,8 +288,8 @@
                         <tr class="border-b border-gray-700 slot-row tou-row" data-prog="{{ p.n }}" data-form-id="tou-form-{{ p.n }}"
                             data-orig-time="{{ orig_time|e }}" data-orig-power="{{ orig_power|e }}" data-orig-capacity="{{ orig_capacity|e }}"
                             data-orig-charge="{{ orig_charge|e }}" data-orig-mode="{{ orig_mode|e }}" data-orig-sell="{{ orig_sell|e }}" data-orig-voltage="{{ orig_voltage|e }}">
-                            <td class="py-2 px-2 font-mono font-semibold">#{{ p.n }}{% if not f.time.ok %}<div class="text-red-400 text-xs font-normal">read issue</div>{% endif %}</td>
-                            <td class="py-2 px-2">
+                            <td class="py-2 px-2 font-mono font-semibold" data-label="Program">#{{ p.n }}{% if not f.time.ok %}<div class="text-red-400 text-xs font-normal">read issue</div>{% endif %}</td>
+                            <td class="py-2 px-2" data-label="Time">
                                 <form id="tou-form-{{ p.n }}" action="{{ root_path }}/tou/save_program/{{ p.n }}" method="post" class="tou-form"></form>
                                 <select form="tou-form-{{ p.n }}" name="time" class="field tou-field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono">
                                     {% if f.time.options %}
@@ -281,30 +301,30 @@
                                 </select>
                                 {% if f.time.error %}<div class="text-red-400 text-xs">{{ f.time.error }}</div>{% endif %}
                             </td>
-                            <td class="py-2 px-2"><input form="tou-form-{{ p.n }}" type="number" name="power" step="{{ f.power.step or 1 }}" min="{{ f.power.min if f.power.min is not none else 0 }}" max="{{ f.power.max if f.power.max is not none else 16000 }}" value="{{ f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-24 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
-                            <td class="py-2 px-2"><input form="tou-form-{{ p.n }}" type="number" name="capacity" step="{{ f.capacity.step or 1 }}" min="{{ f.capacity.min if f.capacity.min is not none else 0 }}" max="{{ f.capacity.max if f.capacity.max is not none else 100 }}" value="{{ f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
-                            <td class="py-2 px-2">
+                            <td class="py-2 px-2" data-label="Power (W)"><input form="tou-form-{{ p.n }}" type="number" name="power" step="{{ f.power.step or 1 }}" min="{{ f.power.min if f.power.min is not none else 0 }}" max="{{ f.power.max if f.power.max is not none else 16000 }}" value="{{ f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-24 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
+                            <td class="py-2 px-2" data-label="Capacity (%)"><input form="tou-form-{{ p.n }}" type="number" name="capacity" step="{{ f.capacity.step or 1 }}" min="{{ f.capacity.min if f.capacity.min is not none else 0 }}" max="{{ f.capacity.max if f.capacity.max is not none else 100 }}" value="{{ f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2" data-label="Grid charge">
                                 <select form="tou-form-{{ p.n }}" name="charge" class="field tou-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     {% for opt in (f.charge.options or []) %}<option value="{{ opt }}" {% if f.charge.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
                                     {% if f.charge.state and f.charge.options and f.charge.state not in f.charge.options %}<option value="{{ f.charge.state }}" selected>{{ f.charge.state }} (current)</option>{% endif %}
                                     {% if not f.charge.options %}<option value="{{ f.charge.state or '' }}" selected>{{ f.charge.state or '—' }}</option>{% endif %}
                                 </select>
                             </td>
-                            <td class="py-2 px-2">
+                            <td class="py-2 px-2" data-label="Mode">
                                 <select form="tou-form-{{ p.n }}" name="mode" class="field tou-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     {% for opt in (f.mode.options or []) %}<option value="{{ opt }}" {% if f.mode.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
                                     {% if f.mode.state and f.mode.options and f.mode.state not in f.mode.options %}<option value="{{ f.mode.state }}" selected>{{ f.mode.state }} (current)</option>{% endif %}
                                     {% if not f.mode.options %}<option value="{{ f.mode.state or '' }}" selected>{{ f.mode.state or '—' }}</option>{% endif %}
                                 </select>
                             </td>
-                            <td class="py-2 px-2">
+                            <td class="py-2 px-2" data-label="Sell">
                                 <select form="tou-form-{{ p.n }}" name="sell" class="field tou-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     <option value="on" {% if f.sell.state in ['on','1','true','True'] %}selected{% endif %}>On</option>
                                     <option value="off" {% if f.sell.state not in ['on','1','true','True'] %}selected{% endif %}>Off</option>
                                 </select>
                             </td>
-                            <td class="py-2 px-2"><input form="tou-form-{{ p.n }}" type="number" name="voltage" step="{{ f.voltage.step or 0.1 }}" min="{{ f.voltage.min if f.voltage.min is not none else 0 }}" max="{{ f.voltage.max if f.voltage.max is not none else 100 }}" value="{{ f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
-                            <td class="py-2 px-2 whitespace-nowrap">
+                            <td class="py-2 px-2" data-label="Voltage (V)"><input form="tou-form-{{ p.n }}" type="number" name="voltage" step="{{ f.voltage.step or 0.1 }}" min="{{ f.voltage.min if f.voltage.min is not none else 0 }}" max="{{ f.voltage.max if f.voltage.max is not none else 100 }}" value="{{ f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2 whitespace-nowrap" data-label="Action">
                                 <button form="tou-form-{{ p.n }}" type="submit" disabled class="btn save-sync-btn bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-1.5 px-3 rounded-lg text-sm font-medium shadow-sm" data-prog="{{ p.n }}"><i class="mdi mdi-content-save-move"></i> Save &amp; sync</button>
                             </td>
                         </tr>
@@ -321,8 +341,8 @@
         {% for sec in config_sections %}
         <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-6 mb-6 card">
             <h2 class="text-xl font-semibold mb-4 flex items-center gap-2"><i class="mdi mdi-tune"></i> {{ sec.title }}</h2>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm text-left overflow-hidden rounded-lg">
+            <div class="overflow-x-auto table-scroll">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg resp-table">
                     <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
                         <tr>
                             <th class="py-2 px-2">Setting</th>
@@ -337,9 +357,9 @@
                         {% set is_ro = e.readonly|default(false) %}
                         {% set cur = e.state if e.state not in [none,'unknown','unavailable'] else '' %}
                         <tr class="border-b border-gray-700 slot-row config-row {% if not e.ok %}opacity-70{% endif %}" data-entity="{{ e.entity_id|e }}" data-label="{{ e.label|e }}" data-domain="{{ e.domain|e }}" data-orig="{{ cur|e }}" data-readonly="{{ '1' if is_ro else '0' }}">
-                            <td class="py-2 px-2 font-medium text-gray-200">{{ e.label }}{% if is_ro %} <span class="text-xs text-gray-500">(status)</span>{% endif %}</td>
-                            <td class="py-2 px-2 font-mono text-xs text-gray-400 break-all">{{ e.entity_id }}</td>
-                            <td class="py-2 px-2">
+                            <td class="py-2 px-2 font-medium text-gray-200" data-label="Setting">{{ e.label }}{% if is_ro %} <span class="text-xs text-gray-500">(status)</span>{% endif %}</td>
+                            <td class="py-2 px-2 font-mono text-xs text-gray-400 break-all" data-label="Entity">{{ e.entity_id }}</td>
+                            <td class="py-2 px-2" data-label="Current">
                                 {% if e.ok %}
                                     <span class="font-semibold">{{ e.state }}</span>{% if e.unit %} <span class="text-gray-400">{{ e.unit }}</span>{% endif %}
                                     {% if e.friendly_name %}<div class="text-xs text-gray-500">{{ e.friendly_name }}</div>{% endif %}
@@ -347,7 +367,7 @@
                                     <span class="text-red-400 text-xs">{{ e.error or 'Unavailable' }}</span>
                                 {% endif %}
                             </td>
-                            <td class="py-2 px-2">
+                            <td class="py-2 px-2" data-label="New value">
                                 {% if is_ro %}
                                     <span class="text-gray-500 text-xs">Read-only</span>
                                 {% elif e.domain == 'switch' %}
@@ -374,7 +394,7 @@
                                 {% endif %}
                                 <input form="cfg-form-{{ loop.index0 }}-{{ sec.id }}" type="hidden" name="entity_id" value="{{ e.entity_id }}">
                             </td>
-                            <td class="py-2 px-2">
+                            <td class="py-2 px-2" data-label="Action">
                                 {% if not is_ro and e.domain in ['switch','select','number'] %}
                                 <form id="cfg-form-{{ loop.index0 }}-{{ sec.id }}" action="{{ root_path }}/config/apply" method="post" class="config-form">
                                     <button type="submit" class="config-apply-btn btn px-3 py-1.5 rounded-md text-sm font-medium bg-gray-700 text-gray-400 cursor-not-allowed opacity-60" disabled title="Change the value to enable Apply"><i class="mdi mdi-upload"></i> Apply</button>
@@ -453,15 +473,15 @@
           tr.className = 'border-b border-gray-700/70 slot-row export-row bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60';
           tr.setAttribute('data-slot-enabled','1');
           tr.innerHTML = ''
-            + '<td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>'
-            + '<td class="py-2 pr-2 font-mono text-gray-500">new<input form="save-all-slots" type="hidden" name="id" value="'+nid+'"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC at/below threshold or unavailable"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="0" required class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold"></td>'
-            + '<td class="py-2 pr-2"><select form="save-all-slots" name="enabled" class="field slot-enabled-select px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"><option value="1" selected>Yes</option><option value="0">No</option></select></td>'
-            + '<td class="py-2 whitespace-nowrap"><button type="button" class="btn px-2 py-1 hover:bg-red-600/90 rounded-md text-xs remove-new-row" title="Remove unsaved row"><i class="mdi mdi-close"></i> Remove</button></td>';
+            + '<td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" data-label="Reorder" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>'
+            + '<td class="py-2 pr-2 font-mono text-gray-500" data-label="ID">new<input form="save-all-slots" type="hidden" name="id" value="'+nid+'"></td>'
+            + '<td class="py-2 pr-2" data-label="Start"><input form="save-all-slots" type="time" name="start_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2" data-label="End"><input form="save-all-slots" type="time" name="end_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2" data-label="Power (W)"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2" data-label="Default export (W)"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC at/below threshold or unavailable"></td>'
+            + '<td class="py-2 pr-2" data-label="Battery %"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="0" required class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold"></td>'
+            + '<td class="py-2 pr-2" data-label="Enabled"><select form="save-all-slots" name="enabled" class="field slot-enabled-select px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"><option value="1" selected>Yes</option><option value="0">No</option></select></td>'
+            + '<td class="py-2 whitespace-nowrap" data-label="Actions"><button type="button" class="btn px-2 py-1 hover:bg-red-600/90 rounded-md text-xs remove-new-row" title="Remove unsaved row"><i class="mdi mdi-close"></i> Remove</button></td>';
           tbody.appendChild(tr);
           var rm = tr.querySelector('.remove-new-row');
           if (rm) wireRemove(rm);
@@ -738,7 +758,7 @@
           rendered++;
           var card = document.createElement('div');
           card.className = 'bg-gray-900/35 border border-gray-700/60 rounded-xl p-4';
-          card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+(g.title||'Graph')+(g.unit?' <span class="text-gray-400 font-normal">('+g.unit+')</span>':'')+'</h3><div style="position:relative;height:280px"><canvas></canvas></div>';
+          card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+(g.title||'Graph')+(g.unit?' <span class="text-gray-400 font-normal">('+g.unit+')</span>':'')+'</h3><div class="chart-box" style="position:relative;height:220px"><canvas></canvas></div>';
           chartsWrap.appendChild(card);
           var ctx = card.querySelector('canvas').getContext('2d');
           var scales = { x: { type: 'time', ticks: { color: '#9ca3af', maxTicksLimit: 8 }, grid: { color: 'rgba(156,163,175,0.12)' } }, y: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(156,163,175,0.12)' } } };
