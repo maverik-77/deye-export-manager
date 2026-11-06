@@ -147,16 +147,16 @@
                     </thead>
                     <tbody id="slots-tbody">
                         {% for slot in slots %}
-                        <tr class="border-b border-gray-700 slot-row {% if not slot.enabled %}opacity-60{% endif %}">
+                        <tr class="border-b border-gray-700/70 slot-row export-row {% if slot.enabled %}bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60{% else %}bg-gray-900/40 opacity-60 border-l-2 border-l-gray-600/50{% endif %}" data-slot-enabled="{{ 1 if slot.enabled else 0 }}">
                             <td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>
                             <td class="py-2 pr-2 font-mono">{{ slot.id }}<input form="save-all-slots" type="hidden" name="id" value="{{ slot.id }}"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="{{ slot.start_time }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="{{ slot.end_time }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="{{ '%.0f'|format(slot.power_kw * 1000) }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="{{ slot.default_export_w|default(0) }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="Fallback export when SOC is at/below threshold or unavailable"></td>
-                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="{{ slot.battery_soc_pct|default(0) }}" required class="field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="SOC threshold (0–100%)"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="{{ slot.start_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="{{ slot.end_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="{{ '%.0f'|format(slot.power_kw * 1000) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="{{ slot.default_export_w|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC is at/below threshold or unavailable"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="{{ slot.battery_soc_pct|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold (0–100%)"></td>
                             <td class="py-2 pr-2">
-                                <select form="save-all-slots" name="enabled" class="field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                <select form="save-all-slots" name="enabled" class="field slot-enabled-select px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     <option value="1" {% if slot.enabled %}selected{% endif %}>Yes</option>
                                     <option value="0" {% if not slot.enabled %}selected{% endif %}>No</option>
                                 </select>
@@ -281,6 +281,9 @@
     </div>
 
     
+
+    <div id="enable-toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-amber-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg hidden z-50"><i class="mdi mdi-lock"></i> Enable this row before editing.</div>
+
     <div id="save-confirm-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
         <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-3xl w-full card slide-down max-h-[90vh] overflow-auto">
             <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-content-save-alert text-amber-400"></i> Confirm save &amp; sync (direct inverter update)</h3>
@@ -307,16 +310,17 @@
           var empty = tbody.querySelector('td[colspan]');
           if (empty) { var er = empty.closest('tr'); if(er) er.remove(); }
           var tr = document.createElement('tr');
-          tr.className = 'border-b border-gray-700 slot-row';
+          tr.className = 'border-b border-gray-700/70 slot-row export-row bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60';
+          tr.setAttribute('data-slot-enabled','1');
           tr.innerHTML = ''
             + '<td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>'
             + '<td class="py-2 pr-2 font-mono text-gray-500">new<input form="save-all-slots" type="hidden" name="id" value="'+nid+'"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="00:00" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="00:00" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="0" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="0" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="Fallback export when SOC at/below threshold or unavailable"></td>'
-            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="0" required class="field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="SOC threshold"></td>'
-            + '<td class="py-2 pr-2"><select form="save-all-slots" name="enabled" class="field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"><option value="1" selected>Yes</option><option value="0">No</option></select></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC at/below threshold or unavailable"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="0" required class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold"></td>'
+            + '<td class="py-2 pr-2"><select form="save-all-slots" name="enabled" class="field slot-enabled-select px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"><option value="1" selected>Yes</option><option value="0">No</option></select></td>'
             + '<td class="py-2 whitespace-nowrap"><button type="button" class="btn px-2 py-1 hover:bg-red-600/90 rounded-md text-xs remove-new-row" title="Remove unsaved row"><i class="mdi mdi-close"></i> Remove</button></td>';
           tbody.appendChild(tr);
           var rm = tr.querySelector('.remove-new-row');
@@ -331,6 +335,60 @@
           chosenClass: 'sortable-chosen'
         });
       }
+
+
+      // Export: lock editing in disabled rows (except Enabled); show message on attempt
+      var enableToast = document.getElementById('enable-toast');
+      var enableToastTimer = null;
+      function showEnableToast(){
+        if(!enableToast) return;
+        enableToast.classList.remove('hidden');
+        clearTimeout(enableToastTimer);
+        enableToastTimer = setTimeout(function(){ enableToast.classList.add('hidden'); }, 2200);
+      }
+      function setExportRowEnabled(row, enabled){
+        row.setAttribute('data-slot-enabled', enabled ? '1':'0');
+        row.classList.toggle('bg-green-950/10', !!enabled);
+        row.classList.toggle('hover:bg-green-900/15', !!enabled);
+        row.classList.toggle('border-l-green-500/60', !!enabled);
+        row.classList.toggle('bg-gray-900/40', !enabled);
+        row.classList.toggle('border-l-gray-600/50', !enabled);
+        row.classList.toggle('opacity-60', !enabled);
+        row.querySelectorAll('.slot-editable').forEach(function(el){ el.disabled = !enabled; });
+      }
+      function wireExportRow(row){
+        var sel = row.querySelector('.slot-enabled-select');
+        if(sel){ sel.addEventListener('change', function(){ setExportRowEnabled(row, sel.value === '1'); }); }
+        row.querySelectorAll('.slot-editable').forEach(function(el){
+          el.addEventListener('mousedown', function(ev){ if(el.disabled){ ev.preventDefault(); showEnableToast(); } });
+          el.addEventListener('focus', function(){ if(el.disabled){ el.blur(); showEnableToast(); } });
+        });
+      }
+      document.querySelectorAll('.export-row').forEach(wireExportRow);
+      // after adding new row, wire it (handled by add-row? also observe)
+
+      if(tbody){
+        tbody.addEventListener('mousedown', function(ev){
+          var row = ev.target.closest && ev.target.closest('.export-row');
+          if(!row) return;
+          if(row.getAttribute('data-slot-enabled') !== '0') return;
+          var editable = ev.target.closest && (ev.target.closest('.slot-editable') || (ev.target.tagName==='TD' && ev.target.querySelector && ev.target.querySelector('.slot-editable')));
+          var isEnabledSel = ev.target.closest && ev.target.closest('.slot-enabled-select');
+          if(!isEnabledSel && (editable || (ev.target.closest && ev.target.closest('td') && ev.target.closest('td').cellIndex >=1 && ev.target.closest('td').cellIndex <=5))){
+            showEnableToast();
+          }
+        });
+      }
+      var addRowBtn = document.getElementById('add-row-btn');
+      if(addRowBtn && tbody){
+        var _origAdd = addRowBtn.onclick; // we replaced earlier; use MutationObserver/light hook instead
+      }
+      if(tbody){
+        var mo = new MutationObserver(function(muts){ muts.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.nodeType===1 && n.classList && n.classList.contains('export-row')) wireExportRow(n); }); }); });
+        mo.observe(tbody, {childList:true});
+      }
+      var saveAll = document.getElementById('save-all-slots');
+      if(saveAll){ saveAll.addEventListener('submit', function(){ saveAll.querySelectorAll('.slot-editable, select[name="enabled"]').forEach(function(el){ el.disabled=false; }); if(tbody){ tbody.querySelectorAll('.slot-editable, select[name="enabled"]').forEach(function(el){ el.disabled=false; }); } }); }
 
       // Import dirty tracking, save button enable/disable, confirmation
       var dirty = {};
