@@ -42,27 +42,32 @@
             <p class="text-gray-500 text-sm mt-1">Page loaded: {{ now_str }} — values pulled live from Home Assistant/inverter on load.</p>
         </header>
 
-        <div class="grid md:grid-cols-2 gap-6 mb-8">
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <i class="mdi mdi-plus-circle"></i>
-                    Add Time Slot
-                </h2>
-                <form action="{{ root_path }}/add_slot" method="post" class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium mb-2">From Time</label>
-                        <input type="time" name="start_time" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-2">To Time</label>
-                        <input type="time" name="end_time" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-2">Export Power (kW)</label>
-                        <input type="number" name="power_kw" step="0.01" min="0" max="16" placeholder="e.g., 2.35" required class="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-yellow-500 focus:outline-none">
-                    </div>
-                    <button type="submit" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded font-medium transition">
-                        <i class="mdi mdi-plus"></i> Add Slot
+        <div class="flex gap-2 mb-6 border-b border-gray-700 pb-2">
+            <a href="{{ root_path }}/?tab=export" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='export' %}active{% endif %}" data-tab="export"><i class="mdi mdi-calendar-clock"></i> Export</a>
+            <a href="{{ root_path }}/?tab=import" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='import' %}active{% endif %}" data-tab="import"><i class="mdi mdi-tune-variant"></i> Time of Use</a>
+        </div>
+
+        {% if tab == 'export' %}
+        {% if mismatch %}
+        <div class="bg-amber-900/50 border border-amber-600/70 rounded-xl p-6 mb-8 card slide-down">
+            <h2 class="text-xl font-semibold mb-2 flex items-center gap-2 text-amber-200">
+                <i class="mdi mdi-alert"></i>
+                Value mismatch — choose master
+            </h2>
+            <p class="text-amber-100 mb-1">{% if mismatch.startup_check %}Checked on first load after (re)start. {% endif %}Current time: <strong>{{ mismatch.current_time }}</strong></p>
+            <p class="mb-4">Inverter reports <strong>{{ "%.0f"|format(mismatch.inverter_kw * 1000) }} W</strong> ({{ "%.3f"|format(mismatch.inverter_kw) }} kW), but the app schedule expects <strong>{{ "%.0f"|format(mismatch.schedule_kw * 1000) }} W</strong> (SOC-effective; configured {{ "%.0f"|format(mismatch.configured_kw * 1000) }} W) now.{% if mismatch.active_slot %} (Active slot {{ mismatch.active_slot.start_time }}–{{ mismatch.active_slot.end_time }}, default {{ mismatch.active_slot.default_export_w|default(0) }} W, battery threshold {{ mismatch.active_slot.battery_soc_pct|default(0) }}%){% else %} (No enabled slot covers this time; schedule defaults to 0 W.){% endif %}{% if mismatch.soc_status and mismatch.soc_status.ok %} Battery SOC: {{ mismatch.soc_status.soc|round(1) }}%.{% elif mismatch.soc_status %} Battery SOC unavailable ({{ mismatch.soc_status.error }}); fallback to Default export.{% endif %}</p>
+            <p class="text-sm text-amber-200 mb-4">Which value should be treated as the master? The other will be updated accordingly.</p>
+            <div class="flex flex-wrap gap-3">
+                <form action="{{ root_path }}/resolve_mismatch" method="post" class="inline">
+                    <input type="hidden" name="master" value="inverter">
+                    <button type="submit" class="btn bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm">
+                        <i class="mdi mdi-download"></i> Use inverter value (update app schedule)
+                    </button>
+                </form>
+                <form action="{{ root_path }}/resolve_mismatch" method="post" class="inline">
+                    <input type="hidden" name="master" value="schedule">
+                    <button type="submit" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm">
+                        <i class="mdi mdi-upload"></i> Use schedule value (apply to inverter)
                     </button>
                 </form>
             </div>
@@ -117,14 +122,364 @@
                 <i class="mdi mdi-table"></i>
                 Stored Configuration (Local Database)
             </h2>
-            <ul class="space-y-2 text-gray-300">
-                <li>• Add time slots for when you want to export power to the grid</li>
-                <li>• Power values can be set from 0 to 16 kW with 0.01 kW precision</li>
-                <li>• The scheduler checks every minute and applies the correct setting to your Deye inverter</li>
-                <li>• Slots are automatically checked for time overlaps - make sure times don't conflict</li>
-                <li>• Use toggle to enable/disable slots without deleting them</li>
-            </ul>
+            <p class="text-gray-400 text-sm mb-3">Add rows in this table, edit values, and click <strong>Save schedule</strong> to save to the database. New rows are created on save; existing rows are updated. <strong>Enabled</strong> slots must cover 00:00–24:00 continuously with no gaps/overlaps (use <code>00:00</code> as end for midnight; <code>00:00–00:00</code> for all day). <span class="text-gray-300">Drag the <i class="mdi mdi-drag-vertical"></i> handle to rearrange rows for easier viewing/editing</span> (schedule logic is time-based; display reloads ordered by start time, with longer duration first when start times match).</p>
+            {% if saved %}<div class="mb-3 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down">Schedule saved.</div>{% endif %}
+            {% if save_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Save failed:</strong> {{ save_error }}</div>{% endif %}
+            {% if coverage_ok %}<div class="mb-3 p-3 rounded-lg bg-green-900/25 border border-green-800/70 text-green-300 text-sm slide-down"><i class="mdi mdi-check-circle"></i> Enabled schedule covers the full 24-hour period continuously.</div>{% elif coverage_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/35 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> Coverage check: {{ coverage_error }}</div>{% endif %}
+            {% for slot in slots %}
+            <form id="delete-slot-{{ slot.id }}" action="{{ root_path }}/delete_slot/{{ slot.id }}" method="post"></form>
+            {% endfor %}
+            <form id="save-all-slots" action="{{ root_path }}/save_slots" method="post"></form>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg">
+                    <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
+                        <tr>
+                            <th class="py-2 pr-2 w-8" title="Drag to reorder"><i class="mdi mdi-drag"></i></th>
+                            <th class="py-2 pr-2">ID</th>
+                            <th class="py-2 pr-2">Start</th>
+                            <th class="py-2 pr-2">End</th>
+                            <th class="py-2 pr-2">Power (W)</th>
+                            <th class="py-2 pr-2" title="Applied when battery SOC is at/below Battery % or SOC unavailable">Default export (W)</th>
+                            <th class="py-2 pr-2" title="If SOC > Battery %, use Power (W); if SOC <= Battery %, use Default export (W)">Battery %</th>
+                            <th class="py-2 pr-2">Enabled</th>
+                            <th class="py-2">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="slots-tbody">
+                        {% for slot in slots %}
+                        <tr class="border-b border-gray-700/70 slot-row export-row {% if slot.enabled %}bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60{% else %}bg-gray-900/40 opacity-60 border-l-2 border-l-gray-600/50{% endif %}" data-slot-enabled="{{ 1 if slot.enabled else 0 }}">
+                            <td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>
+                            <td class="py-2 pr-2 font-mono">{{ slot.id }}<input form="save-all-slots" type="hidden" name="id" value="{{ slot.id }}"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="{{ slot.start_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="{{ slot.end_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="{{ '%.0f'|format(slot.power_kw * 1000) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="{{ slot.default_export_w|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC is at/below threshold or unavailable"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="{{ slot.battery_soc_pct|default(0) }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold (0–100%)"></td>
+                            <td class="py-2 pr-2">
+                                <select form="save-all-slots" name="enabled" class="field slot-enabled-select px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                    <option value="1" {% if slot.enabled %}selected{% endif %}>Yes</option>
+                                    <option value="0" {% if not slot.enabled %}selected{% endif %}>No</option>
+                                </select>
+                            </td>
+                            <td class="py-2 whitespace-nowrap">
+                                <button form="delete-slot-{{ slot.id }}" type="submit" class="btn px-2 py-1 hover:bg-red-600/90 rounded-md text-xs" title="Delete"><i class="mdi mdi-delete"></i> Delete</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not slots %}
+                        <tr><td colspan="9" class="py-4 text-center text-gray-400">No configuration stored in local database. Click <strong>Add row</strong>, enter slots, then <strong>Save schedule</strong> (enabled slots must cover 24h).</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-2 items-center">
+                <button type="button" id="add-row-btn" class="btn bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-table-row-plus-after"></i> Add row</button>
+                <button form="save-all-slots" type="submit" class="btn bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-content-save"></i> Save schedule</button>
+                <form action="{{ root_path }}/api/apply_now" method="post" class="inline">
+                    <button type="submit" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg font-medium shadow-sm"><i class="mdi mdi-upload"></i> Apply schedule to inverter now</button>
+                </form>
+            </div>
+        </div>
+
+        {% else %}{# import tab / Time of Use #}
+        <div class="bg-red-900/35 border border-red-600/70 rounded-xl p-4 mb-6 card slide-down">
+            <p class="text-red-100 text-sm"><i class="mdi mdi-alert-octagon"></i> <strong>Warning:</strong> Any change you <strong>Save &amp; sync</strong> (or confirm to sync when leaving) on this page <strong>directly updates the inverter</strong> via Home Assistant. Review values carefully before saving.</p>
+        </div>
+        <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-6 mb-8 card">
+            <h2 class="text-xl font-semibold mb-2 flex items-center gap-2"><i class="mdi mdi-tune-variant"></i> Time of Use Programs (Deye inverter)</h2>
+            <p class="text-gray-400 text-sm mb-4">Shows the <strong>6 TOU programs</strong> (<code>deye_prog1</code>–<code>deye_prog6</code>) pulled <strong>live from Home Assistant/inverter on every page load</strong>. No local copy is kept. Rows are ordered by program time. Edit fields and use <strong>Save &amp; sync</strong> on each row to write to the inverter. If you leave with unsaved changes, you’ll be asked whether to sync them.</p>
+            {% if import_saved %}<div class="mb-3 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> Program {{ import_saved }} synced to inverter (live values reloaded).</div>{% endif %}
+            {% if import_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Import sync issue:</strong> {{ import_error }}</div>{% endif %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg min-w-[1100px]">
+                    <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
+                        <tr>
+                            <th class="py-2 px-2">Prog</th>
+                            <th class="py-2 px-2">Time</th>
+                            <th class="py-2 px-2">Power (W)</th>
+                            <th class="py-2 px-2">Capacity (%)</th>
+                            <th class="py-2 px-2">Grid charge</th>
+                            <th class="py-2 px-2">Mode</th>
+                            <th class="py-2 px-2">Sell</th>
+                            <th class="py-2 px-2">Voltage (V)</th>
+                            <th class="py-2 px-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="import-tbody">
+                        {% for p in tou_programs %}
+                        {% set f = p.fields %}
+                        {% set orig_time = f.time.state if f.time.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_power = f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_capacity = f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_charge = f.charge.state if f.charge.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_mode = f.mode.state if f.mode.state not in [none,'unknown','unavailable'] else '' %}
+                        {% set orig_sell = 'on' if f.sell.state in ['on','1','true','True'] else 'off' %}
+                        {% set orig_voltage = f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' %}
+                        <tr class="border-b border-gray-700 slot-row import-row" data-prog="{{ p.n }}" data-form-id="import-form-{{ p.n }}"
+                            data-orig-time="{{ orig_time|e }}" data-orig-power="{{ orig_power|e }}" data-orig-capacity="{{ orig_capacity|e }}"
+                            data-orig-charge="{{ orig_charge|e }}" data-orig-mode="{{ orig_mode|e }}" data-orig-sell="{{ orig_sell|e }}" data-orig-voltage="{{ orig_voltage|e }}">
+                            <td class="py-2 px-2 font-mono font-semibold">#{{ p.n }}{% if not f.time.ok %}<div class="text-red-400 text-xs font-normal">read issue</div>{% endif %}</td>
+                            <td class="py-2 px-2">
+                                <form id="import-form-{{ p.n }}" action="{{ root_path }}/import/save_program/{{ p.n }}" method="post" class="import-form"></form>
+                                <select form="import-form-{{ p.n }}" name="time" class="field import-field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono">
+                                    {% if f.time.options %}
+                                      {% for opt in f.time.options %}<option value="{{ opt }}" {% if f.time.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+                                      {% if f.time.state and f.time.state not in f.time.options %}<option value="{{ f.time.state }}" selected>{{ f.time.state }} (current)</option>{% endif %}
+                                    {% else %}
+                                      <option value="{{ f.time.state or '' }}" selected>{{ f.time.state or '—' }}</option>
+                                    {% endif %}
+                                </select>
+                                {% if f.time.error %}<div class="text-red-400 text-xs">{{ f.time.error }}</div>{% endif %}
+                            </td>
+                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="power" step="{{ f.power.step or 1 }}" min="{{ f.power.min if f.power.min is not none else 0 }}" max="{{ f.power.max if f.power.max is not none else 16000 }}" value="{{ f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-24 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
+                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="capacity" step="{{ f.capacity.step or 1 }}" min="{{ f.capacity.min if f.capacity.min is not none else 0 }}" max="{{ f.capacity.max if f.capacity.max is not none else 100 }}" value="{{ f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2">
+                                <select form="import-form-{{ p.n }}" name="charge" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                    {% for opt in (f.charge.options or []) %}<option value="{{ opt }}" {% if f.charge.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+                                    {% if f.charge.state and f.charge.options and f.charge.state not in f.charge.options %}<option value="{{ f.charge.state }}" selected>{{ f.charge.state }} (current)</option>{% endif %}
+                                    {% if not f.charge.options %}<option value="{{ f.charge.state or '' }}" selected>{{ f.charge.state or '—' }}</option>{% endif %}
+                                </select>
+                            </td>
+                            <td class="py-2 px-2">
+                                <select form="import-form-{{ p.n }}" name="mode" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                    {% for opt in (f.mode.options or []) %}<option value="{{ opt }}" {% if f.mode.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+                                    {% if f.mode.state and f.mode.options and f.mode.state not in f.mode.options %}<option value="{{ f.mode.state }}" selected>{{ f.mode.state }} (current)</option>{% endif %}
+                                    {% if not f.mode.options %}<option value="{{ f.mode.state or '' }}" selected>{{ f.mode.state or '—' }}</option>{% endif %}
+                                </select>
+                            </td>
+                            <td class="py-2 px-2">
+                                <select form="import-form-{{ p.n }}" name="sell" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                    <option value="on" {% if f.sell.state in ['on','1','true','True'] %}selected{% endif %}>On</option>
+                                    <option value="off" {% if f.sell.state not in ['on','1','true','True'] %}selected{% endif %}>Off</option>
+                                </select>
+                            </td>
+                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="voltage" step="{{ f.voltage.step or 0.1 }}" min="{{ f.voltage.min if f.voltage.min is not none else 0 }}" max="{{ f.voltage.max if f.voltage.max is not none else 100 }}" value="{{ f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2 whitespace-nowrap">
+                                <button form="import-form-{{ p.n }}" type="submit" disabled class="btn save-sync-btn bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-1.5 px-3 rounded-lg text-sm font-medium shadow-sm" data-prog="{{ p.n }}"><i class="mdi mdi-content-save-move"></i> Save &amp; sync</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-gray-500 text-xs mt-3">Writes use HA services for <code>deye_progN_*</code> entities (time/charge/mode via select, power/capacity/voltage via number, sell via switch). Always verify values after syncing.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="leave-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-lg w-full card slide-down">
+            <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-alert text-amber-400"></i> Unsaved Import changes</h3>
+            <p class="text-gray-300 text-sm mb-4">You have edited TOU program row(s) that haven’t been synced to the inverter. Sync them before leaving?</p>
+            <div class="flex flex-wrap gap-2">
+                <button id="leave-sync" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-sm font-medium">Sync all &amp; leave</button>
+                <button id="leave-discard" class="btn bg-gray-600 hover:bg-gray-500 text-white py-2 px-3 rounded-lg text-sm font-medium">Leave without syncing</button>
+                <button id="leave-cancel" class="btn bg-amber-700 hover:bg-amber-600 text-white py-2 px-3 rounded-lg text-sm font-medium">Cancel</button>
+            </div>
+            <p id="leave-status" class="text-xs text-gray-400 mt-3"></p>
         </div>
     </div>
+
+    
+
+    <div id="enable-toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-amber-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg hidden z-50"><i class="mdi mdi-lock"></i> Enable this row before editing.</div>
+
+    <div id="save-confirm-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-3xl w-full card slide-down max-h-[90vh] overflow-auto">
+            <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-content-save-alert text-amber-400"></i> Confirm save &amp; sync (direct inverter update)</h3>
+            <p class="text-gray-300 text-sm mb-4">Review all values for this row. Saving will <strong>directly update the inverter</strong> via Home Assistant.</p>
+            <div id="save-confirm-body" class="text-sm"></div>
+            <div class="flex flex-wrap gap-2 mt-4">
+                <button id="save-confirm-yes" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-sm font-medium">Confirm &amp; save to inverter</button>
+                <button id="save-confirm-no" class="btn bg-gray-600 hover:bg-gray-500 text-white py-2 px-3 rounded-lg text-sm font-medium">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function(){
+      // Export table behaviors
+      var tbody = document.getElementById('slots-tbody');
+      var addBtn = document.getElementById('add-row-btn');
+      var newCount = 0;
+      function wireRemove(btn){ btn.addEventListener('click', function(){ var tr = btn.closest('tr'); if(tr) tr.remove(); }); }
+      if (addBtn && tbody) {
+        addBtn.addEventListener('click', function(){
+          newCount++;
+          var nid = 'new_' + newCount;
+          var empty = tbody.querySelector('td[colspan]');
+          if (empty) { var er = empty.closest('tr'); if(er) er.remove(); }
+          var tr = document.createElement('tr');
+          tr.className = 'border-b border-gray-700/70 slot-row export-row bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60';
+          tr.setAttribute('data-slot-enabled','1');
+          tr.innerHTML = ''
+            + '<td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>'
+            + '<td class="py-2 pr-2 font-mono text-gray-500">new<input form="save-all-slots" type="hidden" name="id" value="'+nid+'"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="00:00" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold disabled:cursor-not-allowed disabled:opacity-70"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="0" required class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="Fallback export when SOC at/below threshold or unavailable"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="0" required class="field slot-editable w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70" title="SOC threshold"></td>'
+            + '<td class="py-2 pr-2"><select form="save-all-slots" name="enabled" class="field slot-enabled-select px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"><option value="1" selected>Yes</option><option value="0">No</option></select></td>'
+            + '<td class="py-2 whitespace-nowrap"><button type="button" class="btn px-2 py-1 hover:bg-red-600/90 rounded-md text-xs remove-new-row" title="Remove unsaved row"><i class="mdi mdi-close"></i> Remove</button></td>';
+          tbody.appendChild(tr);
+          var rm = tr.querySelector('.remove-new-row');
+          if (rm) wireRemove(rm);
+        });
+      }
+      if (tbody && window.Sortable) {
+        Sortable.create(tbody, {
+          handle: '.drag-handle',
+          animation: 150,
+          ghostClass: 'sortable-ghost',
+          chosenClass: 'sortable-chosen'
+        });
+      }
+
+
+      // Export: lock editing in disabled rows (except Enabled); show message on attempt
+      var enableToast = document.getElementById('enable-toast');
+      var enableToastTimer = null;
+      function showEnableToast(){
+        if(!enableToast) return;
+        enableToast.classList.remove('hidden');
+        clearTimeout(enableToastTimer);
+        enableToastTimer = setTimeout(function(){ enableToast.classList.add('hidden'); }, 2200);
+      }
+      function setExportRowEnabled(row, enabled){
+        row.setAttribute('data-slot-enabled', enabled ? '1':'0');
+        row.classList.toggle('bg-green-950/10', !!enabled);
+        row.classList.toggle('hover:bg-green-900/15', !!enabled);
+        row.classList.toggle('border-l-green-500/60', !!enabled);
+        row.classList.toggle('bg-gray-900/40', !enabled);
+        row.classList.toggle('border-l-gray-600/50', !enabled);
+        row.classList.toggle('opacity-60', !enabled);
+        row.querySelectorAll('.slot-editable').forEach(function(el){ el.disabled = !enabled; });
+      }
+      function wireExportRow(row){
+        var sel = row.querySelector('.slot-enabled-select');
+        if(sel){ sel.addEventListener('change', function(){ setExportRowEnabled(row, sel.value === '1'); }); }
+        row.querySelectorAll('.slot-editable').forEach(function(el){
+          el.addEventListener('mousedown', function(ev){ if(el.disabled){ ev.preventDefault(); showEnableToast(); } });
+          el.addEventListener('focus', function(){ if(el.disabled){ el.blur(); showEnableToast(); } });
+        });
+      }
+      document.querySelectorAll('.export-row').forEach(wireExportRow);
+      // after adding new row, wire it (handled by add-row? also observe)
+
+      if(tbody){
+        tbody.addEventListener('mousedown', function(ev){
+          var row = ev.target.closest && ev.target.closest('.export-row');
+          if(!row) return;
+          if(row.getAttribute('data-slot-enabled') !== '0') return;
+          var editable = ev.target.closest && (ev.target.closest('.slot-editable') || (ev.target.tagName==='TD' && ev.target.querySelector && ev.target.querySelector('.slot-editable')));
+          var isEnabledSel = ev.target.closest && ev.target.closest('.slot-enabled-select');
+          if(!isEnabledSel && (editable || (ev.target.closest && ev.target.closest('td') && ev.target.closest('td').cellIndex >=1 && ev.target.closest('td').cellIndex <=5))){
+            showEnableToast();
+          }
+        });
+      }
+      var addRowBtn = document.getElementById('add-row-btn');
+      if(addRowBtn && tbody){
+        var _origAdd = addRowBtn.onclick; // we replaced earlier; use MutationObserver/light hook instead
+      }
+      if(tbody){
+        var mo = new MutationObserver(function(muts){ muts.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.nodeType===1 && n.classList && n.classList.contains('export-row')) wireExportRow(n); }); }); });
+        mo.observe(tbody, {childList:true});
+      }
+      var saveAll = document.getElementById('save-all-slots');
+      if(saveAll){ saveAll.addEventListener('submit', function(){ saveAll.querySelectorAll('.slot-editable, select[name="enabled"]').forEach(function(el){ el.disabled=false; }); if(tbody){ tbody.querySelectorAll('.slot-editable, select[name="enabled"]').forEach(function(el){ el.disabled=false; }); } }); }
+
+      // Import dirty tracking, save button enable/disable, confirmation
+      var dirty = {};
+      var FIELDS = [['time','Time'],['power','Power (W)'],['capacity','Capacity (%)'],['charge','Grid charge'],['mode','Mode'],['sell','Sell'],['voltage','Voltage (V)']];
+      function getRowVals(row){
+        var vals={};
+        FIELDS.forEach(function(f){ var el=row.querySelector('[name="'+f[0]+'"]'); vals[f[0]] = el ? String(el.value) : ''; });
+        return vals;
+      }
+      function getOrigVals(row){
+        var vals={};
+        FIELDS.forEach(function(f){ vals[f[0]] = String(row.getAttribute('data-orig-'+f[0]) || ''); });
+        return vals;
+      }
+      function isRowChanged(row){
+        var o=getOrigVals(row), c=getRowVals(row);
+        return FIELDS.some(function(f){ return String(o[f[0]]) !== String(c[f[0]]); });
+      }
+      function refreshRowState(row){
+        var changed=isRowChanged(row); var n=row.getAttribute('data-prog');
+        dirty[n]=changed; row.classList.toggle('row-dirty', !!changed);
+        var btn=row.querySelector('.save-sync-btn'); if(btn) btn.disabled = !changed;
+      }
+      function refreshAllRows(){ document.querySelectorAll('.import-row').forEach(refreshRowState); }
+      function hasDirty(){ return Object.keys(dirty).some(function(k){ return dirty[k]; }); }
+      function dirtyForms(){ return Array.prototype.filter.call(document.querySelectorAll('.import-form'), function(f){ var row=f.closest('.import-row'); return row && dirty[row.getAttribute('data-prog')]; }); }
+      document.querySelectorAll('.import-field').forEach(function(el){
+        el.addEventListener('change', function(){ var row=el.closest('.import-row'); if(row) refreshRowState(row); });
+        el.addEventListener('input', function(){ var row=el.closest('.import-row'); if(row) refreshRowState(row); });
+      });
+      refreshAllRows();
+
+      var pendingSaveForm = null;
+      var saveModal = document.getElementById('save-confirm-modal');
+      function showSaveModal(form, row){
+        pendingSaveForm = form;
+        var o=getOrigVals(row), c=getRowVals(row), n=row.getAttribute('data-prog');
+        var html = '<p class="mb-2 text-gray-300">Program <strong>#'+n+'</strong></p><div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="text-gray-400 border-b border-gray-600"><th class="py-1 pr-3">Field</th><th class="py-1 pr-3">Old value</th><th class="py-1">New value</th></tr></thead><tbody>';
+        FIELDS.forEach(function(f){
+          var changed = String(o[f[0]]) !== String(c[f[0]]);
+          var cls = changed ? ' class="bg-amber-900/30"' : '';
+          var oldv = String(o[f[0]]||'—').replace(/</g,'&lt;');
+          var newv = String(c[f[0]]||'—').replace(/</g,'&lt;');
+          html += '<tr'+cls+'><td class="py-1 pr-3 text-gray-300">'+f[1]+(changed?' <span class="text-amber-400">*</span>':'')+'</td><td class="py-1 pr-3 font-mono">'+oldv+'</td><td class="py-1 font-mono font-semibold'+(changed?' text-amber-200':'')+'">'+newv+'</td></tr>';
+        });
+        html += '</tbody></table></div><p class="text-xs text-gray-400 mt-2">* changed</p>';
+        var body=document.getElementById('save-confirm-body'); if(body) body.innerHTML = html;
+        if(saveModal){ saveModal.classList.remove('hidden'); saveModal.classList.add('flex'); }
+      }
+      function hideSaveModal(){ pendingSaveForm=null; if(saveModal){ saveModal.classList.add('hidden'); saveModal.classList.remove('flex'); } }
+      var saveNo=document.getElementById('save-confirm-no'); if(saveNo) saveNo.addEventListener('click', hideSaveModal);
+      var saveYes=document.getElementById('save-confirm-yes'); if(saveYes) saveYes.addEventListener('click', function(){
+        if(!pendingSaveForm) return hideSaveModal();
+        var f=pendingSaveForm; pendingSaveForm=null; hideSaveModal();
+        f.dataset.confirmed = '1'; f.submit();
+      });
+      document.querySelectorAll('.import-form').forEach(function(f){
+        f.addEventListener('submit', function(ev){
+          if(f.dataset.confirmed === '1'){ var row=f.closest('.import-row'); if(row){ dirty[row.getAttribute('data-prog')]=false; } return; }
+          var row=f.closest('.import-row'); if(!row) return;
+          if(!isRowChanged(row)){ ev.preventDefault(); return; }
+          ev.preventDefault();
+          showSaveModal(f, row);
+        });
+      });
+      window.addEventListener('beforeunload', function(e){ if(hasDirty()){ e.preventDefault(); e.returnValue=''; } });
+
+      var pendingHref = null;
+      var modal = document.getElementById('leave-modal');
+      function showModal(href){ pendingHref=href; if(modal){ modal.classList.remove('hidden'); modal.classList.add('flex'); } }
+      function hideModal(){ if(modal){ modal.classList.add('hidden'); modal.classList.remove('flex'); } pendingHref=null; }
+      document.querySelectorAll('a[href]').forEach(function(a){
+        a.addEventListener('click', function(ev){ if(hasDirty() && !a.target){ ev.preventDefault(); showModal(a.href); } });
+      });
+      var cancelBtn=document.getElementById('leave-cancel'); if(cancelBtn) cancelBtn.addEventListener('click', hideModal);
+      var discardBtn=document.getElementById('leave-discard'); if(discardBtn) discardBtn.addEventListener('click', function(){ dirty={}; if(pendingHref) window.location=pendingHref; else hideModal(); });
+      var syncBtn=document.getElementById('leave-sync'); if(syncBtn) syncBtn.addEventListener('click', async function(){
+        var status=document.getElementById('leave-status'); if(status) status.textContent='Syncing changed rows to inverter...';
+        var forms=dirtyForms();
+        try {
+          for (var i=0;i<forms.length;i++){
+            var fd=new FormData(forms[i]);
+            var resp=await fetch(forms[i].action, {method:'POST', body:fd, credentials:'same-origin'});
+            if(!resp.ok && resp.status!==303){ throw new Error('Sync failed for a row'); }
+          }
+          dirty={};
+          if(status) status.textContent='Synced.';
+          if(pendingHref) window.location=pendingHref; else window.location.reload();
+        } catch(err){ if(status) status.textContent='Error: '+err.message+'. You can cancel and save rows individually.'; }
+      });
+    })();
+    </script>
 </body>
 </html>
