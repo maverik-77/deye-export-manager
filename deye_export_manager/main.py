@@ -28,6 +28,7 @@ DB_PATH = os.path.join(DATA_DIR, "schedules.db")
 HA_URL = os.environ.get("HA_URL", "http://supervisor/core").rstrip("/")
 HA_TOKEN = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN", "")
 DEYE_ENTITY = os.environ.get("DEYE_ENTITY", "number.deye_max_sell_power")
+BATTERY_PERCENTAGE = os.environ.get("BATTERY_PERCENTAGE", "sensor.deye_battery_soc")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -66,6 +67,13 @@ def init_db():
         value TEXT
     )''')
     c.execute("INSERT OR IGNORE INTO schedules (id, name) VALUES (1, 'Default')")
+    # migrations for SOC/default export columns
+    c.execute("PRAGMA table_info(schedule_slots)")
+    cols = [r[1] for r in c.fetchall()]
+    if "default_export_w" not in cols:
+        c.execute("ALTER TABLE schedule_slots ADD COLUMN default_export_w INTEGER DEFAULT 0")
+    if "battery_soc_pct" not in cols:
+        c.execute("ALTER TABLE schedule_slots ADD COLUMN battery_soc_pct INTEGER DEFAULT 0")
     conn.commit()
     conn.close()
 
@@ -164,6 +172,21 @@ async def get_entity_state(entity_id: str):
     except Exception as e:
         return {"ok": False, "error": str(e), "entity_id": entity_id}
 
+
+
+
+async def get_battery_soc():
+    st = await get_entity_state(BATTERY_PERCENTAGE)
+    if not st.get("ok"):
+        return {"ok": False, "error": st.get("error"), "entity_id": BATTERY_PERCENTAGE, "soc": None}
+    val = st.get("state")
+    try:
+        soc = float(val)
+    except Exception:
+        return {"ok": False, "error": f"Invalid SOC state: {val}", "entity_id": BATTERY_PERCENTAGE, "soc": None, "state": val}
+    if soc < 0 or soc > 1000:  # sanity
+        pass
+    return {"ok": True, "entity_id": BATTERY_PERCENTAGE, "soc": soc, "state": val}
 
 async def ha_call_service(domain: str, service: str, payload: dict):
     if not HA_TOKEN:
@@ -319,6 +342,18 @@ def _validate_24h_coverage(slots, require_enabled=True):
         p = float(sl["power_kw"])
         if p < 0 or p > 16:
             return False, f"Slot {sl.get('id','?')}: power must be 0–16 kW."
+        try:
+            dew = float(sl.get("default_export_w", 0) or 0)
+            if dew < 0 or dew > 16000:
+                return False, f"Slot {sl.get('id','?')}: default export must be 0–16000 W."
+        except Exception:
+            return False, f"Slot {sl.get('id','?')}: invalid default export."
+        try:
+            bsp = float(sl.get("battery_soc_pct", 0) or 0)
+            if bsp < 0 or bsp > 100:
+                return False, f"Slot {sl.get('id','?')}: battery % must be 0–100."
+        except Exception:
+            return False, f"Slot {sl.get('id','?')}: invalid battery %."
     active = [sl for sl in slots if sl.get("enabled")]
     if require_enabled and not active:
         return False, "At least one enabled slot is required."
@@ -343,6 +378,7 @@ def _validate_24h_coverage(slots, require_enabled=True):
     return True, None
 
 def expected_power_now(slots, now=None):
+    """Return (configured_power_kw, active_slot) based on time only (no SOC)."""
     now = now or datetime.now()
     cur = now.hour * 60 + now.minute
     for slot in slots:
@@ -357,7 +393,55 @@ def expected_power_now(slots, now=None):
     return 0.0, None
 
 
-def _compute_and_maybe_get_apply():
+def _effective_export_w_for_slot(slot, soc):
+    """Compute effective export watts for a slot given SOC (float) or None if unavailable.
+    Rule (re-evaluated each tick, not latched):
+      SOC > battery_soc_pct  -> slot Power (W)
+      SOC <= battery_soc_pct -> Default export (W)
+      SOC unavailable        -> Default export (W) (safe fallback)
+    """
+    default_w = int(round(float(slot.get("default_export_w", 0) or 0)))
+    default_w = max(0, min(16000, default_w))
+    power_w = int(round(float(slot.get("power_kw", 0) or 0) * 1000))
+    power_w = max(0, min(16000, power_w))
+    try:
+        threshold = float(slot.get("battery_soc_pct", 0) or 0)
+    except Exception:
+        threshold = 0.0
+    threshold = max(0.0, min(100.0, threshold))
+    if soc is None:
+        return default_w, "soc_unavailable"
+    try:
+        soc_v = float(soc)
+    except Exception:
+        return default_w, "soc_invalid"
+    if soc_v > threshold:
+        return power_w, "soc_above_threshold"
+    return default_w, "soc_at_or_below_threshold"
+
+
+async def effective_expected_now(slots, now=None):
+    """Return SOC-aware expected export info for current time."""
+    configured_kw, active_slot = expected_power_now(slots, now=now)
+    soc_status = await get_battery_soc()
+    soc = soc_status.get("soc") if soc_status.get("ok") else None
+    if active_slot:
+        effective_w, reason = _effective_export_w_for_slot(active_slot, soc)
+    else:
+        effective_w, reason = 0, "no_active_slot"
+    return {
+        "configured_kw": round(float(configured_kw), 3),
+        "effective_w": int(effective_w),
+        "effective_kw": round(int(effective_w) / 1000.0, 3),
+        "active_slot": active_slot,
+        "soc_status": soc_status,
+        "battery_entity": BATTERY_PERCENTAGE,
+        "reason": reason,
+    }
+
+
+async def _compute_and_maybe_get_apply_soc():
+    """SOC-aware: compute effective export watts for active slot, apply if changed."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -368,15 +452,22 @@ def _compute_and_maybe_get_apply():
     slots = [dict(r) for r in c.fetchall()]
     slots.sort(key=_slot_sort_key)
 
-    active_power = 0
+    active_slot = None
     for slot in slots:
         try:
-            s, e = _slot_interval(slot["start_time"], slot["end_time"])
+            s_min, e_min = _slot_interval(slot["start_time"], slot["end_time"])
         except Exception:
             continue
-        if s <= cur < e:
-            active_power = int(float(slot["power_kw"]) * 1000)
+        if s_min <= cur < e_min:
+            active_slot = slot
             break
+
+    soc_status = await get_battery_soc()
+    soc = soc_status.get("soc") if soc_status.get("ok") else None
+    if active_slot:
+        active_power, reason = _effective_export_w_for_slot(active_slot, soc)
+    else:
+        active_power, reason = 0, "no_active_slot"
 
     c.execute("SELECT value FROM settings WHERE key='last_applied'")
     row = c.fetchone()
@@ -386,17 +477,22 @@ def _compute_and_maybe_get_apply():
         c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_applied', ?)", (str(active_power),))
         conn.commit()
     conn.close()
-    return active_power, changed
+    return active_power, changed, {
+        "active_slot": active_slot,
+        "soc_status": soc_status,
+        "reason": reason,
+        "effective_w": active_power,
+    }
 
 
 def check_and_apply_schedule():
     """Called by APScheduler from a background thread."""
-    active_power, changed = _compute_and_maybe_get_apply()
-    if changed:
-        try:
+    try:
+        active_power, changed, _info = asyncio.run(_compute_and_maybe_get_apply_soc())
+        if changed:
             asyncio.run(apply_to_ha(active_power))
-        except Exception as e:
-            print(f"Error applying scheduled power: {e}")
+    except Exception as e:
+        print(f"Error applying scheduled power (SOC-aware): {e}")
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(check_and_apply_schedule, "interval", minutes=1)
@@ -410,7 +506,11 @@ async def index(request: Request):
     root_path = request.scope.get("root_path", "")
     ha_status = await get_ha_entity_state()
     last_applied = get_last_applied()
-    expected_kw, active_slot = expected_power_now(slots)
+    eff = await effective_expected_now(slots)
+    expected_kw = eff["effective_kw"]  # SOC-effective for display/mismatch/apply context
+    configured_kw = eff["configured_kw"]
+    active_slot = eff["active_slot"]
+    soc_status = eff["soc_status"]
     now = datetime.now()
     mismatch = None
     # Show mismatch prompt on first load after restart, or whenever values differ (clear and actionable)
@@ -420,9 +520,12 @@ async def index(request: Request):
             mismatch = {
                 "inverter_kw": round(inv_kw, 3),
                 "schedule_kw": round(expected_kw, 3),
+                "configured_kw": round(configured_kw, 3),
                 "current_time": now.strftime("%H:%M"),
                 "active_slot": active_slot,
                 "startup_check": not STARTUP_CHECK_DONE,
+                "soc_status": soc_status,
+                "reason": eff["reason"],
             }
     STARTUP_CHECK_DONE = True
     coverage_ok, coverage_error = _validate_24h_coverage(slots, require_enabled=True) if slots else (False, "No slots configured.")
@@ -440,11 +543,16 @@ async def index(request: Request):
         root_path=root_path,
         ha_status=ha_status,
         deye_entity=DEYE_ENTITY,
+        battery_percentage=BATTERY_PERCENTAGE,
         ha_url=HA_URL,
         last_applied=last_applied,
         db_path=DB_PATH,
         expected_kw=round(expected_kw, 3),
+        configured_kw=round(configured_kw, 3),
         active_slot=active_slot,
+        effective_w=eff["effective_w"],
+        soc_status=soc_status,
+        soc_reason=eff["reason"],
         mismatch=mismatch,
         now_str=now.strftime("%Y-%m-%d %H:%M:%S"),
         coverage_ok=coverage_ok,
@@ -529,7 +637,14 @@ async def save_slots(request: Request):
     powers = form.getlist("power_w")
     if not powers:
         powers = form.getlist("power_kw")  # fallback
+    default_exports = form.getlist("default_export_w")
+    battery_pcts = form.getlist("battery_soc_pct")
     enableds = form.getlist("enabled")
+    # back-compat if columns missing in old form posts
+    if len(default_exports) != len(ids):
+        default_exports = ["0"] * len(ids)
+    if len(battery_pcts) != len(ids):
+        battery_pcts = ["0"] * len(ids)
     if not (len(ids) == len(starts) == len(ends) == len(powers) == len(enableds)):
         from urllib.parse import quote
         return RedirectResponse(url=f"{root_path}/?error={quote('Malformed form submission.')}", status_code=303)
@@ -545,6 +660,8 @@ async def save_slots(request: Request):
                 "start_time": str(starts[i]),
                 "end_time": str(ends[i]),
                 "power_kw": round(max(0.0, min(16000.0, float(powers[i]))) / 1000.0, 3),
+                "default_export_w": int(round(max(0.0, min(16000.0, float(default_exports[i] or 0))))),
+                "battery_soc_pct": int(round(max(0.0, min(100.0, float(battery_pcts[i] or 0))))),
                 "enabled": 1 if str(enableds[i]) in ("1", "true", "True", "on", "yes") else 0,
             }
         except Exception:
@@ -560,13 +677,13 @@ async def save_slots(request: Request):
     for sl in slots:
         if sl["is_new"]:
             c.execute(
-                "INSERT INTO schedule_slots (start_time, end_time, power_kw, enabled) VALUES (?, ?, ?, ?)",
-                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl["enabled"]),
+                "INSERT INTO schedule_slots (start_time, end_time, power_kw, default_export_w, battery_soc_pct, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl.get("default_export_w", 0), sl.get("battery_soc_pct", 0), sl["enabled"]),
             )
         else:
             c.execute(
-                "UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, enabled=? WHERE id=?",
-                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl["enabled"], sl["db_id"]),
+                "UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, default_export_w=?, battery_soc_pct=?, enabled=? WHERE id=?",
+                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl.get("default_export_w", 0), sl.get("battery_soc_pct", 0), sl["enabled"], sl["db_id"]),
             )
     conn.commit()
     conn.close()
@@ -585,7 +702,8 @@ async def resolve_mismatch(request: Request, master: str = Form(...)):
     ha_status = await get_ha_entity_state()
     expected_kw, active_slot = expected_power_now(slots)
     if master == "schedule":
-        watts = int(round(expected_kw * 1000))
+        eff = await effective_expected_now(slots)
+        watts = int(eff["effective_w"])
         await apply_to_ha(watts)
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -626,14 +744,19 @@ async def resolve_mismatch(request: Request, master: str = Form(...)):
 async def api_status():
     slots = get_slots()
     ha_status = await get_ha_entity_state()
-    expected_kw, active_slot = expected_power_now(slots)
+    eff = await effective_expected_now(slots)
     return JSONResponse({
         "deye_entity": DEYE_ENTITY,
+        "battery_percentage": BATTERY_PERCENTAGE,
         "ha_url": HA_URL,
         "ha_status": ha_status,
+        "soc_status": eff["soc_status"],
         "last_applied_watts": get_last_applied(),
-        "expected_kw_now": expected_kw,
-        "active_slot": active_slot,
+        "expected_kw_now": eff["effective_kw"],
+        "configured_kw_now": eff["configured_kw"],
+        "effective_w_now": eff["effective_w"],
+        "soc_reason": eff["reason"],
+        "active_slot": eff["active_slot"],
         "slots_count": len(slots),
         "db_path": DB_PATH,
     })
@@ -641,7 +764,7 @@ async def api_status():
 
 @app.post("/api/apply_now")
 async def api_apply_now(request: Request):
-    active_power, changed = _compute_and_maybe_get_apply()
+    active_power, changed, _info = await _compute_and_maybe_get_apply_soc()
     if changed:
         await apply_to_ha(active_power)
     root_path = request.scope.get("root_path", "")
@@ -676,12 +799,11 @@ async def sync_from_inverter(request: Request):
 
 
 @app.post("/import/save_program/{n}")
-async def import_save_program(request: Request, n: int, time: str = Form(...), power: float = Form(...), capacity: float = Form(...), charge: str = Form(...), mode: str = Form(...), voltage: float = Form(...), sell: str = Form("off")):
+async def import_save_program(request: Request, n: int, time: str = Form(""), power: str = Form(""), capacity: str = Form(""), charge: str = Form(""), mode: str = Form(""), voltage: str = Form(""), sell: str = Form("off")):
     root_path = request.scope.get("root_path", "")
     from urllib.parse import quote
     if n < 1 or n > 6:
         return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote('Invalid program.')}", status_code=303)
-    # fetch current attributes for validation where helpful
     time_e = f"select.deye_prog{n}_time"
     charge_e = f"select.deye_prog{n}_charge"
     mode_e = f"select.deye_prog{n}_mode"
@@ -690,28 +812,33 @@ async def import_save_program(request: Request, n: int, time: str = Form(...), p
     volt_e = f"number.deye_prog{n}_voltage"
     sell_e = f"switch.deye_prog{n}_sell"
     states = await asyncio.gather(*(get_entity_state(e) for e in [time_e, charge_e, mode_e, power_e, cap_e, volt_e, sell_e]))
-    st_time, st_charge, st_mode, st_power, st_cap, st_volt, st_sell = states
+    st_time, st_charge, st_mode, st_power, st_cap, st_volt, _st_sell = states
     def opts(st):
         a = st.get("attributes") or {}; return a.get("options") or []
-    if st_time.get("ok") and opts(st_time) and time not in opts(st_time):
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid time option.')}", status_code=303)
-    if st_charge.get("ok") and opts(st_charge) and charge not in opts(st_charge):
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid charge option.')}", status_code=303)
-    if st_mode.get("ok") and opts(st_mode) and mode not in opts(st_mode):
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid mode option.')}", status_code=303)
-    def clamp(val, st, default_min=None, default_max=None):
-        a = st.get("attributes") or {}
-        mn = a.get("min", default_min); mx = a.get("max", default_max)
+    def parse_num(raw, st):
+        if raw is None or str(raw).strip() == "":
+            return None, "missing value"
         try:
-            v = float(val)
-            if mn is not None: v = max(float(mn), v)
-            if mx is not None: v = min(float(mx), v)
-            return v
+            v = float(raw)
         except Exception:
-            return val
-    power_v = clamp(power, st_power)
-    cap_v = clamp(capacity, st_cap)
-    volt_v = clamp(voltage, st_volt)
+            return None, "not a number"
+        a = st.get("attributes") or {}
+        mn = a.get("min"); mx = a.get("max")
+        if mn is not None: v = max(float(mn), v)
+        if mx is not None: v = min(float(mx), v)
+        return v, None
+    if not time or (st_time.get("ok") and opts(st_time) and time not in opts(st_time)):
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid or missing time.')}", status_code=303)
+    if not charge or (st_charge.get("ok") and opts(st_charge) and charge not in opts(st_charge)):
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid or missing grid-charge option.')}", status_code=303)
+    if not mode or (st_mode.get("ok") and opts(st_mode) and mode not in opts(st_mode)):
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid or missing mode option.')}", status_code=303)
+    power_v, e = parse_num(power, st_power)
+    if e: return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: power {e}.')}", status_code=303)
+    cap_v, e = parse_num(capacity, st_cap)
+    if e: return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: capacity {e}.')}", status_code=303)
+    volt_v, e = parse_num(voltage, st_volt)
+    if e: return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: voltage {e}.')}", status_code=303)
     sell_on = str(sell).lower() in ("on", "1", "true", "yes")
     calls = [
         ("select", "select_option", {"entity_id": time_e, "option": time}),

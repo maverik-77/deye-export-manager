@@ -1,6 +1,7 @@
 #!/usr/bin/with-contenv bashio
 
 export DEYE_ENTITY=$(bashio::config 'deye_entity')
+export BATTERY_PERCENTAGE=$(bashio::config 'battery_percentage')
 export SUPERVISOR_TOKEN="${SUPERVISOR_TOKEN}"
 export HA_URL="http://supervisor/core"
 export DATA_DIR=/data

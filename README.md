@@ -17,10 +17,11 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 - 24-hour export schedule managed in the add-on UI (ingress; no host port mapping).
 - Stores schedule in the add-on’s local SQLite DB (`/data/schedules.db` inside the add-on container).
 - **Add rows in the table**, edit values, drag rows to rearrange the view, then click **Save schedule** (one action). New rows are created on save; existing rows are updated.
-- Power is entered in **Watts** in the UI (`0–16000 W`) and converted/stored internally as needed.
+- Per-slot columns (Export tab only): **Start/End**, **Power (W)**, **Default export (W)**, **Battery %** (0–100), **Enabled**. Power/default export are entered in **Watts** (`0–16000 W`).
+- **SOC-aware export (re-evaluated every minute, not latched):** for the active slot the add-on reads battery SOC from the configured `battery_percentage` sensor (default `sensor.deye_battery_soc`). If **SOC > Battery %** it applies the slot **Power (W)** to the export entity; if **SOC <= Battery %** it applies **Default export (W)**. If SOC is unavailable/invalid it applies **Default export (W)** (safe fallback) and shows status in the UI.
 - **Save validation:** enabled slots must cover the full day continuously with **no gaps/overlaps** (`00:00`–24:00). Use `00:00` as end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot.
-- Pulls **live inverter value** from Home Assistant on page load / after restart, compares with the **schedule expected now**, and prompts you to choose **master** (inverter or schedule) if they differ.
-- Applies the expected export power automatically when the schedule changes (checked every minute) and via **Apply schedule to inverter now**.
+- Pulls **live inverter value** from Home Assistant on page load / after restart, compares with the **SOC-effective schedule expected now**, and prompts you to choose **master** (inverter or schedule) if they differ.
+- Applies the effective export power automatically (checked every minute) and via **Apply schedule to inverter now**.
 - Table display reloads ordered by **start time** (longer duration first when start times match). Schedule logic is time-based.
 
 ### Import tab (Deye TOU programs, live read/write; no local copy)
@@ -52,6 +53,7 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 3. Go back to the Apps/add-on store view, click **⋮ → Check for updates** / reload if needed, then find and install **Deye Export Manager**.
 4. Open the add-on page → **Configuration** tab and set:
    - `deye_entity`: the exact Home Assistant entity ID to control for **Export** (default `number.deye_max_sell_power`). Replace with your real entity if different.
+   - `battery_percentage`: the battery SOC sensor for Export rules (default `sensor.deye_battery_soc`).
 5. Save configuration, **Start** the add-on, and open the **Log** tab. Confirm there are no startup/API errors.
 6. Enable **Show in sidebar** (or open via the add-on’s ingress/Open Web UI). The panel title is **Deye Export**.
 
@@ -85,11 +87,12 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 - **No enabled slot covering current time:** runtime applies `0 W`. With a valid saved schedule (full 24h coverage), this should not happen.
 - Scheduling uses the add-on/container’s local time (`datetime.now()`). Ensure your system/add-on timezone matches your intended schedule.
 
-## Configuration option
+## Configuration options
 
 | Option | Description | Default |
 |---|---|---|
 | `deye_entity` | Home Assistant entity ID used with `number.set_value` for Export schedule control | `number.deye_max_sell_power` |
+| `battery_percentage` | Home Assistant sensor entity ID providing battery SOC (%) for Export SOC-aware rules | `sensor.deye_battery_soc` |
 
 ## Optional Home Assistant automations (NOT required)
 

@@ -1,5 +1,5 @@
 name: "Deye Export Manager"
-version: "1.0.19"
+version: "1.0.20"
 slug: "deye_export_manager"
 description: "Custom export scheduler for Deye inverters with 24-hour schedule management"
 url: "https://github.com/maverik-77/deye-export-manager"
@@ -16,7 +16,9 @@ panel_title: Deye Export
 homeassistant_api: true
 options:
   deye_entity: "number.deye_max_sell_power"
+  battery_percentage: "sensor.deye_battery_soc"
 schema:
   deye_entity: str
+  battery_percentage: str
 map:
   - homeassistant_config:rw
