@@ -1,11 +1,12 @@
 # Deye Export Manager (Home Assistant Add-on)
 
-Custom Home Assistant add-on for managing a **24-hour export-power schedule**, viewing/editing **Deye inverter Time of Use (TOU) programs**, and adjusting selected **Deye inverter configuration** settings. It uses the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar with **Export**, **Time of Use**, and **Configuration** tabs.
+Custom Home Assistant add-on for viewing **live inverter vitals and historical graphs** (Overview), managing a **24-hour export-power schedule** (Export), viewing/editing **Deye inverter Time of Use (TOU) programs** (Time of Use), and adjusting selected **Deye inverter configuration** settings (Configuration). It uses the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar. **Overview** is the default landing tab.
 
 ## Required Home Assistant automations: **NONE**
 
 **You do not need to create any Home Assistant automations for this add-on to work.**
 
+- **Overview tab:** live vitals and historical graphs are **pulled from Home Assistant** (current states + HA history/recorder). Read-only; no automations required.
 - **Export tab (schedule):** core scheduling and applying export power are handled by the add-on itself (checks every minute, plus **Apply schedule to inverter now**), as long as the add-on is running, has Home Assistant API access (`homeassistant_api` / Supervisor token), and `deye_entity` is correct/controllable.
 - **Time of Use tab (TOU programs):** values are **pulled live from Home Assistant/inverter on every page load** and changes are written only when you click **Save & sync** on a row and **confirm** the old → new change (or confirm the unsaved-leave prompt). No automations required.
 - **Configuration tab:** values are **pulled live** on page load. Changes are written only when you edit a setting, click **Apply**, and **confirm** the old → new change. No automations required.
@@ -13,6 +14,12 @@ Custom Home Assistant add-on for managing a **24-hour export-power schedule**, v
 The [Optional Home Assistant automations](#optional-home-assistant-automations-not-required) section below contains **optional** examples only (notifications/safety). They are not required for setup.
 
 ## What it does
+
+### Overview tab (live vitals + historical graphs)
+- **Default landing tab.** Read-only view of inverter vitals and history pulled from Home Assistant (no local storage).
+- **Vital details (live):** status/battery (e.g. grid connected, SOC, battery power/voltage/current/temperature), power flow (PV, grid, load, battery, essential, grid CT where available), grid/inverter (voltage, frequency, radiator/DC transformer temperature where available), and today/energy values (day/total PV, load, grid import/export, battery charge/discharge where available). Entities are shown only when available/readable.
+- **Historical graphs (HA history/recorder):** interactive charts rendered with Chart.js (CDN) using Home Assistant history data. Includes power flow, battery SOC, battery voltage/current, grid voltage/frequency, and temperatures (for available `deye_*` entities). Range presets: **6h, 24h, 3d, 7d** with refresh. Data is downsampled for responsiveness; missing entities/points are handled gracefully.
+- **Data source:** uses the add-on’s Supervisor/Home Assistant API access (`/api/states` and history). Graph availability depends on entities existing and Home Assistant recorder/history having data.
 
 ### Export tab (local schedule, stored in add-on DB)
 - 24-hour export schedule managed in the add-on UI (ingress; no host port mapping).
@@ -51,11 +58,12 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 ## Prerequisites
 
 1. **Home Assistant OS / Supervised** with **Apps** (Add-ons/Supervisor).
-2. **Export:** an integration that exposes your Deye inverter’s **max export/sell power** as a controllable Home Assistant entity (commonly `number.*`; default `number.deye_max_sell_power`).
-3. **Export SOC rules (optional but recommended):** a battery SOC sensor (default `sensor.deye_battery_soc`) for SOC-aware Export behavior.
-4. **Time of Use:** the corresponding Deye/Sunsynk TOU program entities available in Home Assistant (e.g. `select/number/switch.deye_prog1_*` … `deye_prog6_*`) if you want to use the Time of Use tab.
-5. **Configuration:** the corresponding `deye_*` entities listed above available in Home Assistant if you want to use the Configuration tab.
-6. You can find and control those entities in Home Assistant:
+2. **Overview (recommended):** relevant `deye_*` / `binary_sensor.deye_*` sensors available in Home Assistant (e.g. `sensor.deye_battery_soc`, `sensor.deye_pv_power`, `sensor.deye_grid_power`, `sensor.deye_load_power`, `sensor.deye_battery_power`, grid/temperature/energy sensors). Overview shows what is available; graphs require Home Assistant **recorder/history** data.
+3. **Export:** an integration that exposes your Deye inverter’s **max export/sell power** as a controllable Home Assistant entity (commonly `number.*`; default `number.deye_max_sell_power`).
+4. **Export SOC rules (optional but recommended):** a battery SOC sensor (default `sensor.deye_battery_soc`) for SOC-aware Export behavior.
+5. **Time of Use:** the corresponding Deye/Sunsynk TOU program entities available in Home Assistant (e.g. `select/number/switch.deye_prog1_*` … `deye_prog6_*`) if you want to use the Time of Use tab.
+6. **Configuration:** the corresponding `deye_*` entities listed above available in Home Assistant if you want to use the Configuration tab.
+7. You can find and control those entities in Home Assistant:
    - Go to **Settings → Devices & services → Entities** or **Developer Tools → States**.
    - Confirm entities can be set (e.g. `number.set_value`, `select.select_option`, `switch.turn_on/off`). **Back up/verify before relying on it** — integrations differ in units, options, and accepted ranges.
 
@@ -76,6 +84,11 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 6. Enable **Show in sidebar** (or open via the add-on’s ingress/Open Web UI). The panel title is **Deye Export**.
 
 ## Using the UI
+
+### Overview tab
+1. Open **Overview** (default). The add-on loads live vital details from Home Assistant.
+2. Review status/power/battery/grid/temperature/energy cards. Missing or unavailable entities are shown per item.
+3. Use **Historical Graphs** range selector (**6h/24h/3d/7d**) and **Refresh** to load charts from Home Assistant history. If charts don’t appear, check that the entities exist, recorder/history has data, and the browser can load the Chart.js CDN.
 
 ### Export tab
 1. **Status panel:** shows configured entity, live inverter value (pulled from HA), schedule expected now (SOC-effective/configured), DB/last applied, and coverage/status.
@@ -221,6 +234,8 @@ action:
 
 ## Troubleshooting
 
+- **Overview vitals missing/unavailable:** confirm the relevant `deye_*` / `binary_sensor.deye_*` entities exist in **Developer Tools → States** and are provided by your Deye/Sunsynk/Solarman integration. Overview only shows entities it can read.
+- **Overview graphs empty or history error:** graphs require Home Assistant **recorder/history** data for the selected entities/time range. Check add-on **Log** and HA history; ensure the browser can load Chart.js CDN assets; try a different range and **Refresh**.
 - **Entity error/not found (Export):** check `deye_entity` in add-on Configuration and confirm it exists in **Developer Tools → States**.
 - **Time of Use read or sync errors:** confirm the `deye_prog1`–`deye_prog6` entities exist, are available, and accept the selected options/values for your integration. Check add-on **Log** for HA API/service errors.
 - **Time of Use sync incomplete:** HA service calls are not atomic; the error shows which entities were **Applied** and which **Failed**. Review inverter/live values before retrying.

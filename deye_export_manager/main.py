@@ -650,15 +650,16 @@ async def index(request: Request):
     coverage_ok, coverage_error = _validate_24h_coverage(slots, require_enabled=True) if slots else (False, "No slots configured.")
     saved = request.query_params.get("saved")
     save_error = request.query_params.get("error")
-    tab = request.query_params.get("tab") or "export"
-    if tab not in ("export", "tou", "config"):
-        tab = "export"
+    tab = (request.query_params.get("tab") or "overview").strip().lower()
+    if tab not in ("overview", "export", "tou", "config"):
+        tab = "overview"
     tou_programs = await get_tou_programs()
     tou_saved = request.query_params.get("tou_saved")
     tou_error = request.query_params.get("tou_error")
     config_sections = await get_config_sections()
     config_saved = request.query_params.get("config_saved")
     config_error = request.query_params.get("config_error")
+    overview_data = await get_overview_data() if tab == "overview" else {"ok": True, "groups": [], "graphs": [], "now": now_str}
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -688,6 +689,7 @@ async def index(request: Request):
         config_sections=config_sections,
         config_saved=config_saved,
         config_error=config_error,
+        overview_data=overview_data,
     ))
 
 @app.post("/add_slot")
@@ -1076,6 +1078,191 @@ async def config_apply(request: Request, entity_id: str = Form(...), value: str 
         return RedirectResponse(url=f"{root_path}/?tab=config&config_error={quote(entity_id + ': ' + str(err))}", status_code=303)
     label = meta.get("label") or entity_id
     return RedirectResponse(url=f"{root_path}/?tab=config&config_saved={quote(label + ' = ' + new_label)}", status_code=303)
+
+
+
+# ---------------- Overview / history (vitals + graphs) ----------------
+
+OVERVIEW_VITALS = [
+    {"id": "status", "title": "Status & Battery", "entities": [
+        {"key": "grid_connected", "entity_id": "binary_sensor.deye_grid_connected", "label": "Grid Connected"},
+        {"key": "battery_soc", "entity_id": BATTERY_PERCENTAGE, "label": "Battery SOC"},
+        {"key": "battery_power", "entity_id": "sensor.deye_battery_power", "label": "Battery Power"},
+        {"key": "battery_voltage", "entity_id": "sensor.deye_battery_voltage", "label": "Battery Voltage"},
+        {"key": "battery_current", "entity_id": "sensor.deye_battery_current", "label": "Battery Current"},
+        {"key": "battery_temperature", "entity_id": "sensor.deye_battery_temperature", "label": "Battery Temperature"},
+    ]},
+    {"id": "power", "title": "Power Flow", "entities": [
+        {"key": "pv_power", "entity_id": "sensor.deye_pv_power", "label": "PV Power"},
+        {"key": "grid_power", "entity_id": "sensor.deye_grid_power", "label": "Grid Power"},
+        {"key": "load_power", "entity_id": "sensor.deye_load_power", "label": "Load Power"},
+        {"key": "essential_power", "entity_id": "sensor.deye_essential_power", "label": "Essential Power"},
+        {"key": "grid_ct_power", "entity_id": "sensor.deye_grid_ct_power", "label": "Grid CT Power"},
+    ]},
+    {"id": "grid", "title": "Grid & Inverter", "entities": [
+        {"key": "grid_voltage", "entity_id": "sensor.deye_grid_voltage", "label": "Grid Voltage"},
+        {"key": "grid_frequency", "entity_id": "sensor.deye_grid_frequency", "label": "Grid Frequency"},
+        {"key": "radiator_temperature", "entity_id": "sensor.deye_radiator_temperature", "label": "Radiator Temp"},
+        {"key": "dc_transformer_temperature", "entity_id": "sensor.deye_dc_transformer_temperature", "label": "DC Transformer Temp"},
+    ]},
+    {"id": "energy", "title": "Today / Energy", "entities": [
+        {"key": "day_pv_energy", "entity_id": "sensor.deye_day_pv_energy", "label": "Day PV Energy"},
+        {"key": "day_load_energy", "entity_id": "sensor.deye_day_load_energy", "label": "Day Load Energy"},
+        {"key": "day_grid_import", "entity_id": "sensor.deye_day_grid_import", "label": "Day Grid Import"},
+        {"key": "day_grid_export", "entity_id": "sensor.deye_day_grid_export", "label": "Day Grid Export"},
+        {"key": "day_battery_charge", "entity_id": "sensor.deye_day_battery_charge", "label": "Day Battery Charge"},
+        {"key": "day_battery_discharge", "entity_id": "sensor.deye_day_battery_discharge", "label": "Day Battery Discharge"},
+        {"key": "total_pv_energy", "entity_id": "sensor.deye_total_pv_energy", "label": "Total PV Energy"},
+    ]},
+]
+
+OVERVIEW_GRAPH_SERIES = [
+    {"id": "power_flow", "title": "Power Flow", "unit": "W", "type": "line", "entities": [
+        ("sensor.deye_pv_power", "PV"),
+        ("sensor.deye_grid_power", "Grid"),
+        ("sensor.deye_load_power", "Load"),
+        ("sensor.deye_battery_power", "Battery"),
+        ("sensor.deye_essential_power", "Essential"),
+        ("sensor.deye_grid_ct_power", "Grid CT"),
+    ]},
+    {"id": "soc", "title": "Battery SOC", "unit": "%", "type": "line", "entities": [
+        (BATTERY_PERCENTAGE, "SOC"),
+    ]},
+    {"id": "battery_electrical", "title": "Battery Voltage / Current", "unit": "", "type": "line", "y2": True, "entities": [
+        ("sensor.deye_battery_voltage", "Voltage (V)", "y"),
+        ("sensor.deye_battery_current", "Current (A)", "y1"),
+    ]},
+    {"id": "grid_quality", "title": "Grid Voltage / Frequency", "unit": "", "type": "line", "y2": True, "entities": [
+        ("sensor.deye_grid_voltage", "Voltage (V)", "y"),
+        ("sensor.deye_grid_frequency", "Frequency (Hz)", "y1"),
+    ]},
+    {"id": "temperatures", "title": "Temperatures", "unit": "°C", "type": "line", "entities": [
+        ("sensor.deye_battery_temperature", "Battery"),
+        ("sensor.deye_radiator_temperature", "Radiator"),
+    ]},
+]
+
+ALLOWED_HISTORY_ENTITIES = {eid for g in OVERVIEW_GRAPH_SERIES for (eid, *_) in g["entities"]}
+ALLOWED_HISTORY_ENTITIES.update({e["entity_id"] for g in OVERVIEW_VITALS for e in g["entities"]})
+
+
+def _coerce_history_value(state):
+    if state in (None, "unknown", "unavailable", ""):
+        return None
+    try:
+        v = float(state)
+        # filter obvious bogus sentinel temps in some integrations
+        if abs(v) > 100000:
+            return None
+        return v
+    except Exception:
+        return None
+
+
+async def get_ha_history(entity_ids, start_dt, end_dt=None):
+    if not HA_TOKEN:
+        return {}
+    ids = [e for e in entity_ids if e in ALLOWED_HISTORY_ENTITIES]
+    if not ids:
+        return {}
+    params = {
+        "filter_entity_id": ",".join(ids),
+        "minimal_response": "1",
+        "significant_changes_only": "0",
+    }
+    if end_dt:
+        params["end_time"] = end_dt.isoformat()
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{HA_URL}/api/history/period/{start_dt.isoformat()}",
+                headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+                params=params,
+                timeout=30.0,
+            )
+            if response.status_code >= 400:
+                return {"_error": f"HA history API error {response.status_code}"}
+            data = response.json() or []
+    except Exception as e:
+        return {"_error": str(e)}
+    out = {}
+    for series in data:
+        if not series:
+            continue
+        eid = series[0].get("entity_id") or (series[-1].get("entity_id") if series else None)
+        if not eid:
+            continue
+        points = []
+        for item in series:
+            ts = item.get("last_changed") or item.get("last_updated")
+            val = _coerce_history_value(item.get("state"))
+            if ts and val is not None:
+                points.append([ts, val])
+        # downsample
+        max_points = 240
+        if len(points) > max_points:
+            step = max(1, len(points) // max_points)
+            points = points[::step]
+            if points and len(points) > max_points:
+                points = points[-max_points:]
+        out[eid] = points
+    return out
+
+
+async def get_overview_data():
+    # fetch all vital entities
+    entity_ids = []
+    for g in OVERVIEW_VITALS:
+        for e in g["entities"]:
+            entity_ids.append(e["entity_id"])
+    entity_ids = list(dict.fromkeys(entity_ids))
+    states = await asyncio.gather(*(get_entity_state(eid) for eid in entity_ids))
+    by = {st.get("entity_id"): st for st in states}
+    groups = []
+    for g in OVERVIEW_VITALS:
+        items = []
+        for e in g["entities"]:
+            st = by.get(e["entity_id"]) or {"ok": False, "error": "Missing", "entity_id": e["entity_id"], "state": None, "attributes": {}}
+            items.append({
+                "key": e["key"], "label": e["label"], "entity_id": e["entity_id"],
+                "ok": st.get("ok"), "state": st.get("state"), "error": st.get("error"),
+                "unit": st.get("unit"), "friendly_name": st.get("friendly_name"),
+            })
+        groups.append({"id": g["id"], "title": g["title"], "items": items})
+    # resolve graph series availability
+    graphs = []
+    for g in OVERVIEW_GRAPH_SERIES:
+        series = []
+        for ent in g["entities"]:
+            eid = ent[0]; label = ent[1]; axis = ent[2] if len(ent) > 2 else "y"
+            st = by.get(eid)
+            if st and st.get("ok"):
+                series.append({"entity_id": eid, "label": label, "axis": axis})
+        if series:
+            gg = {k: v for k, v in g.items() if k != "entities"}
+            gg["series"] = series
+            graphs.append(gg)
+    return {"ok": True, "groups": groups, "graphs": graphs, "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+
+@app.get("/api/overview")
+async def api_overview():
+    return JSONResponse(await get_overview_data())
+
+
+@app.get("/api/history")
+async def api_history(request: Request, hours: int = 24):
+    try:
+        hours = max(1, min(168, int(hours)))
+    except Exception:
+        hours = 24
+    # gather entities for graphs (available ones will be requested client-side too, but return all allowed relevant)
+    ids = list(ALLOWED_HISTORY_ENTITIES)
+    start_dt = datetime.now().astimezone() - __import__('datetime').timedelta(hours=hours)
+    end_dt = datetime.now().astimezone()
+    data = await get_ha_history(ids, start_dt, end_dt)
+    return JSONResponse({"ok": "_error" not in data, "hours": hours, "series": data})
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8099))
