@@ -659,7 +659,13 @@ async def index(request: Request):
     config_sections = await get_config_sections()
     config_saved = request.query_params.get("config_saved")
     config_error = request.query_params.get("config_error")
-    overview_data = await get_overview_data() if tab == "overview" else {"ok": True, "groups": [], "graphs": [], "now": now_str}
+    if tab == "overview":
+        try:
+            overview_data = await get_overview_data()
+        except Exception as e:
+            overview_data = {"ok": False, "error": str(e), "groups": [], "graphs": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
+    else:
+        overview_data = {"ok": True, "groups": [], "graphs": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -1247,7 +1253,10 @@ async def get_overview_data():
 
 @app.get("/api/overview")
 async def api_overview():
-    return JSONResponse(await get_overview_data())
+    try:
+        return JSONResponse(await get_overview_data())
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e), "groups": [], "graphs": [], "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, status_code=200)
 
 
 @app.get("/api/history")
