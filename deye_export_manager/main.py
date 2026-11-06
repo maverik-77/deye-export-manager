@@ -184,8 +184,15 @@ async def get_battery_soc():
         soc = float(val)
     except Exception:
         return {"ok": False, "error": f"Invalid SOC state: {val}", "entity_id": BATTERY_PERCENTAGE, "soc": None, "state": val}
-    if soc < 0 or soc > 1000:  # sanity
-        pass
+    # Treat out-of-range SOC as unavailable so callers fall back safely (Default export)
+    if soc < 0 or soc > 100:
+        return {
+            "ok": False,
+            "error": f"SOC out of expected range (0-100): {val}",
+            "entity_id": BATTERY_PERCENTAGE,
+            "soc": None,
+            "state": val,
+        }
     return {"ok": True, "entity_id": BATTERY_PERCENTAGE, "soc": soc, "state": val}
 
 async def ha_call_service(domain: str, service: str, payload: dict):
@@ -299,17 +306,31 @@ def get_slots():
 
 
 def _hhmm_to_min(t):
-    h, m = t.strip().split(":")
-    return int(h) * 60 + int(m)
+    h, m = str(t).strip().split(":")
+    hh = int(h)
+    mm = int(m)
+    if hh < 0 or hh > 23 or mm < 0 or mm > 59:
+        raise ValueError(f"Invalid time: {t}")
+    return hh * 60 + mm
+
+
+def _normalize_end_time(end_time):
+    et = str(end_time).strip()
+    # Reject ambiguous 24:00; require 00:00 for midnight end
+    if et == "24:00":
+        raise ValueError("Use 00:00 as the end time for midnight (24:00 is not accepted).")
+    return et
 
 
 def _slot_interval(start_time, end_time):
-    s = _hhmm_to_min(start_time)
-    e = _hhmm_to_min(end_time)
-    if start_time == "00:00" and end_time == "00:00":
+    st = str(start_time).strip()
+    et = _normalize_end_time(end_time)
+    s = _hhmm_to_min(st)
+    if st == "00:00" and et == "00:00":
         return 0, 1440
-    if end_time == "00:00" and start_time != "00:00":
-        e = 1440
+    if et == "00:00" and st != "00:00":
+        return s, 1440
+    e = _hhmm_to_min(et)
     return s, e
 
 
@@ -335,10 +356,14 @@ def _validate_24h_coverage(slots, require_enabled=True):
     for sl in slots:
         try:
             s, e = _slot_interval(sl["start_time"], sl["end_time"])
-        except Exception:
-            return False, f"Invalid time format in slot {sl.get('id','?')}."
+        except Exception as ex:
+            msg = str(ex) if str(ex) else f"Invalid time format in slot {sl.get('id','?')}."
+            return False, f"Slot {sl.get('id','?')}: {msg}"
         if e <= s:
-            return False, f"Slot {sl.get('id','?')}: end time must be after start time (use 00:00 as end for midnight)."
+            return False, (
+                f"Slot {sl.get('id','?')}: end time must be after start time. "
+                "Use 00:00 as the end for midnight; cross-midnight ranges must be split into two slots (e.g. 22:00–00:00 and 00:00–06:00)."
+            )
         p = float(sl["power_kw"])
         if p < 0 or p > 16:
             return False, f"Slot {sl.get('id','?')}: power must be 0–16 kW."
@@ -399,6 +424,7 @@ def _effective_export_w_for_slot(slot, soc):
       SOC > battery_soc_pct  -> slot Power (W)
       SOC <= battery_soc_pct -> Default export (W)
       SOC unavailable        -> Default export (W) (safe fallback)
+      SOC out of range       -> Default export (W) (safe fallback)
     """
     default_w = int(round(float(slot.get("default_export_w", 0) or 0)))
     default_w = max(0, min(16000, default_w))
@@ -415,6 +441,8 @@ def _effective_export_w_for_slot(slot, soc):
         soc_v = float(soc)
     except Exception:
         return default_w, "soc_invalid"
+    if soc_v < 0 or soc_v > 100:
+        return default_w, "soc_out_of_range"
     if soc_v > threshold:
         return power_w, "soc_above_threshold"
     return default_w, "soc_at_or_below_threshold"
@@ -570,9 +598,10 @@ async def add_slot(request: Request, start_time: str = Form(...), end_time: str 
     try:
         s_min, e_min = _slot_interval(start_time, end_time)
         if e_min <= s_min:
-            raise ValueError()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid time range. Use HH:MM; for midnight end use 00:00.")
+            raise ValueError("end time must be after start time. Use 00:00 for midnight end; split cross-midnight ranges into two slots.")
+    except Exception as ex:
+        detail = str(ex) or "Invalid time range. Use HH:MM; for midnight end use 00:00."
+        raise HTTPException(status_code=400, detail=detail)
     power_w = max(0.0, min(16000.0, float(power_w)))
     power_kw = round(power_w / 1000.0, 3)
     conn = sqlite3.connect(DB_PATH)
@@ -610,9 +639,10 @@ async def update_slot(request: Request, slot_id: int, start_time: str = Form(...
     try:
         s_min, e_min = _slot_interval(start_time, end_time)
         if e_min <= s_min:
-            raise ValueError()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid time range. Use HH:MM; for midnight end use 00:00.")
+            raise ValueError("end time must be after start time. Use 00:00 for midnight end; split cross-midnight ranges into two slots.")
+    except Exception as ex:
+        detail = str(ex) or "Invalid time range. Use HH:MM; for midnight end use 00:00."
+        raise HTTPException(status_code=400, detail=detail)
     power_w = max(0.0, min(16000.0, float(power_w)))
     power_kw = round(power_w / 1000.0, 3)
     en = 1 if enabled is not None else 0
@@ -672,21 +702,30 @@ async def save_slots(request: Request):
     if not ok:
         from urllib.parse import quote
         return RedirectResponse(url=f"{root_path}/?error={quote(err)}", status_code=303)
+    from urllib.parse import quote
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    for sl in slots:
-        if sl["is_new"]:
-            c.execute(
-                "INSERT INTO schedule_slots (start_time, end_time, power_kw, default_export_w, battery_soc_pct, enabled) VALUES (?, ?, ?, ?, ?, ?)",
-                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl.get("default_export_w", 0), sl.get("battery_soc_pct", 0), sl["enabled"]),
-            )
-        else:
-            c.execute(
-                "UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, default_export_w=?, battery_soc_pct=?, enabled=? WHERE id=?",
-                (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl.get("default_export_w", 0), sl.get("battery_soc_pct", 0), sl["enabled"], sl["db_id"]),
-            )
-    conn.commit()
-    conn.close()
+    try:
+        for sl in slots:
+            if sl["is_new"]:
+                c.execute(
+                    "INSERT INTO schedule_slots (start_time, end_time, power_kw, default_export_w, battery_soc_pct, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                    (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl.get("default_export_w", 0), sl.get("battery_soc_pct", 0), sl["enabled"]),
+                )
+            else:
+                c.execute(
+                    "UPDATE schedule_slots SET start_time=?, end_time=?, power_kw=?, default_export_w=?, battery_soc_pct=?, enabled=? WHERE id=?",
+                    (sl["start_time"], sl["end_time"], max(0.0, min(16.0, sl["power_kw"])), sl.get("default_export_w", 0), sl.get("battery_soc_pct", 0), sl["enabled"], sl["db_id"]),
+                )
+                if c.rowcount == 0:
+                    conn.rollback()
+                    return RedirectResponse(
+                        url=f"{root_path}/?error={quote('Row with id ' + str(sl['db_id']) + ' no longer exists. Reload the page and try saving again.')}",
+                        status_code=303,
+                    )
+        conn.commit()
+    finally:
+        conn.close()
     return RedirectResponse(url=f"{root_path}/?saved=1", status_code=303)
 
 @app.get("/api/slots")
@@ -814,7 +853,22 @@ async def import_save_program(request: Request, n: int, time: str = Form(""), po
     states = await asyncio.gather(*(get_entity_state(e) for e in [time_e, charge_e, mode_e, power_e, cap_e, volt_e, sell_e]))
     st_time, st_charge, st_mode, st_power, st_cap, st_volt, _st_sell = states
     def opts(st):
-        a = st.get("attributes") or {}; return a.get("options") or []
+        a = st.get("attributes") or {}
+        return a.get("options") or []
+
+    def validate_select(label, value, st):
+        if value is None or str(value).strip() == "":
+            return f"{label}: missing value"
+        # Fail closed when the HA entity/options cannot be verified
+        if not st.get("ok"):
+            return f"{label}: cannot verify options because entity state could not be read ({st.get('error') or 'unavailable'})"
+        options = opts(st)
+        if not options:
+            return f"{label}: cannot verify options (no options reported by Home Assistant)"
+        if value not in options:
+            return f"{label}: invalid option '{value}'"
+        return None
+
     def parse_num(raw, st):
         if raw is None or str(raw).strip() == "":
             return None, "missing value"
@@ -827,12 +881,16 @@ async def import_save_program(request: Request, n: int, time: str = Form(""), po
         if mn is not None: v = max(float(mn), v)
         if mx is not None: v = min(float(mx), v)
         return v, None
-    if not time or (st_time.get("ok") and opts(st_time) and time not in opts(st_time)):
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid or missing time.')}", status_code=303)
-    if not charge or (st_charge.get("ok") and opts(st_charge) and charge not in opts(st_charge)):
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid or missing grid-charge option.')}", status_code=303)
-    if not mode or (st_mode.get("ok") and opts(st_mode) and mode not in opts(st_mode)):
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: invalid or missing mode option.')}", status_code=303)
+
+    for label, value, st in [
+        ("time", time, st_time),
+        ("grid-charge", charge, st_charge),
+        ("mode", mode, st_mode),
+    ]:
+        err = validate_select(label, value, st)
+        if err:
+            return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: {err}')}", status_code=303)
+
     power_v, e = parse_num(power, st_power)
     if e: return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: power {e}.')}", status_code=303)
     cap_v, e = parse_num(capacity, st_cap)
@@ -849,13 +907,22 @@ async def import_save_program(request: Request, n: int, time: str = Form(""), po
         ("number", "set_value", {"entity_id": volt_e, "value": volt_v}),
         ("switch", "turn_on" if sell_on else "turn_off", {"entity_id": sell_e}),
     ]
+    applied = []
     errors = []
     for dom, svc, payload in calls:
         ok, err = await ha_call_service(dom, svc, payload)
-        if not ok:
-            errors.append(f"{payload['entity_id']}: {err}")
+        eid = payload["entity_id"]
+        if ok:
+            applied.append(eid)
+        else:
+            errors.append(f"{eid}: {err}")
     if errors:
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote('Sync errors: ' + '; '.join(errors)[:500])}", status_code=303)
+        msg = (
+            f"Prog {n} sync incomplete (HA service calls are not atomic). "
+            f"Applied: {', '.join(applied) if applied else 'none'}. "
+            f"Failed: {'; '.join(errors)}"
+        )
+        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(msg[:700])}", status_code=303)
     return RedirectResponse(url=f"{root_path}/?tab=import&import_saved={n}", status_code=303)
 
 
