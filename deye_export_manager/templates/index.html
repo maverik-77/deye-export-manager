@@ -64,7 +64,7 @@
                 <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-5 card">
                     <h2 class="text-lg font-semibold mb-3 flex items-center gap-2"><i class="mdi mdi-gauge"></i> {{ g.title }}</h2>
                     <div class="space-y-2 text-sm">
-                        {% for item in g.items %}
+                        {% for item in g['items'] %}
                         <div class="flex items-start justify-between gap-2 border-b border-gray-700/40 pb-1">
                             <span class="text-gray-400">{{ item.label }}</span>
                             <span class="text-right font-semibold {% if not item.ok %}text-red-400{% elif item.state in ['on','ON','1','true'] %}text-green-400{% endif %}">
