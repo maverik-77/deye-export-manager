@@ -44,7 +44,7 @@
 
         <div class="flex gap-2 mb-6 border-b border-gray-700 pb-2">
             <a href="{{ root_path }}/?tab=export" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='export' %}active{% endif %}" data-tab="export"><i class="mdi mdi-calendar-clock"></i> Export</a>
-            <a href="{{ root_path }}/?tab=import" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='import' %}active{% endif %}" data-tab="import"><i class="mdi mdi-tune-variant"></i> Time of Use</a>
+            <a href="{{ root_path }}/?tab=tou" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='tou' %}active{% endif %}" data-tab="tou"><i class="mdi mdi-tune-variant"></i> Time of Use</a>
             <a href="{{ root_path }}/?tab=config" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='config' %}active{% endif %}" data-tab="config"><i class="mdi mdi-cog"></i> Configuration</a>
         </div>
         {% if config_saved %}<div class="mb-4 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> {{ config_saved }} — synced and reloaded.</div>{% endif %}
@@ -184,15 +184,15 @@
             </div>
         </div>
 
-        {% elif tab == "import" %}{# Time of Use #}
+        {% elif tab == "tou" %}{# Time of Use #}
         <div class="bg-red-900/35 border border-red-600/70 rounded-xl p-4 mb-6 card slide-down">
             <p class="text-red-100 text-sm"><i class="mdi mdi-alert-octagon"></i> <strong>Warning:</strong> Any change you <strong>Save &amp; sync</strong> (or confirm to sync when leaving) on this page <strong>directly updates the inverter</strong> via Home Assistant. Review values carefully before saving.</p>
         </div>
         <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-6 mb-8 card">
             <h2 class="text-xl font-semibold mb-2 flex items-center gap-2"><i class="mdi mdi-tune-variant"></i> Time of Use Programs (Deye inverter)</h2>
             <p class="text-gray-400 text-sm mb-4">Shows the <strong>6 TOU programs</strong> (<code>deye_prog1</code>–<code>deye_prog6</code>) pulled <strong>live from Home Assistant/inverter on every page load</strong>. No local copy is kept. Rows are ordered by program time. Edit fields and use <strong>Save &amp; sync</strong> on each row to write to the inverter. If you leave with unsaved changes, you’ll be asked whether to sync them.</p>
-            {% if import_saved %}<div class="mb-3 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> Program {{ import_saved }} synced to inverter (live values reloaded).</div>{% endif %}
-            {% if import_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Import sync issue:</strong> {{ import_error }}</div>{% endif %}
+            {% if tou_saved %}<div class="mb-3 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> Program {{ tou_saved }} synced to inverter (live values reloaded).</div>{% endif %}
+            {% if tou_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Time of Use sync issue:</strong> {{ tou_error }}</div>{% endif %}
             <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left overflow-hidden rounded-lg min-w-[1100px]">
                     <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
@@ -218,13 +218,13 @@
                         {% set orig_mode = f.mode.state if f.mode.state not in [none,'unknown','unavailable'] else '' %}
                         {% set orig_sell = 'on' if f.sell.state in ['on','1','true','True'] else 'off' %}
                         {% set orig_voltage = f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' %}
-                        <tr class="border-b border-gray-700 slot-row import-row" data-prog="{{ p.n }}" data-form-id="import-form-{{ p.n }}"
+                        <tr class="border-b border-gray-700 slot-row tou-row" data-prog="{{ p.n }}" data-form-id="tou-form-{{ p.n }}"
                             data-orig-time="{{ orig_time|e }}" data-orig-power="{{ orig_power|e }}" data-orig-capacity="{{ orig_capacity|e }}"
                             data-orig-charge="{{ orig_charge|e }}" data-orig-mode="{{ orig_mode|e }}" data-orig-sell="{{ orig_sell|e }}" data-orig-voltage="{{ orig_voltage|e }}">
                             <td class="py-2 px-2 font-mono font-semibold">#{{ p.n }}{% if not f.time.ok %}<div class="text-red-400 text-xs font-normal">read issue</div>{% endif %}</td>
                             <td class="py-2 px-2">
-                                <form id="import-form-{{ p.n }}" action="{{ root_path }}/import/save_program/{{ p.n }}" method="post" class="import-form"></form>
-                                <select form="import-form-{{ p.n }}" name="time" class="field import-field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono">
+                                <form id="tou-form-{{ p.n }}" action="{{ root_path }}/tou/save_program/{{ p.n }}" method="post" class="tou-form"></form>
+                                <select form="tou-form-{{ p.n }}" name="time" class="field tou-field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono">
                                     {% if f.time.options %}
                                       {% for opt in f.time.options %}<option value="{{ opt }}" {% if f.time.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
                                       {% if f.time.state and f.time.state not in f.time.options %}<option value="{{ f.time.state }}" selected>{{ f.time.state }} (current)</option>{% endif %}
@@ -234,31 +234,31 @@
                                 </select>
                                 {% if f.time.error %}<div class="text-red-400 text-xs">{{ f.time.error }}</div>{% endif %}
                             </td>
-                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="power" step="{{ f.power.step or 1 }}" min="{{ f.power.min if f.power.min is not none else 0 }}" max="{{ f.power.max if f.power.max is not none else 16000 }}" value="{{ f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-24 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
-                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="capacity" step="{{ f.capacity.step or 1 }}" min="{{ f.capacity.min if f.capacity.min is not none else 0 }}" max="{{ f.capacity.max if f.capacity.max is not none else 100 }}" value="{{ f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2"><input form="tou-form-{{ p.n }}" type="number" name="power" step="{{ f.power.step or 1 }}" min="{{ f.power.min if f.power.min is not none else 0 }}" max="{{ f.power.max if f.power.max is not none else 16000 }}" value="{{ f.power.state if f.power.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-24 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
+                            <td class="py-2 px-2"><input form="tou-form-{{ p.n }}" type="number" name="capacity" step="{{ f.capacity.step or 1 }}" min="{{ f.capacity.min if f.capacity.min is not none else 0 }}" max="{{ f.capacity.max if f.capacity.max is not none else 100 }}" value="{{ f.capacity.state if f.capacity.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
                             <td class="py-2 px-2">
-                                <select form="import-form-{{ p.n }}" name="charge" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                <select form="tou-form-{{ p.n }}" name="charge" class="field tou-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     {% for opt in (f.charge.options or []) %}<option value="{{ opt }}" {% if f.charge.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
                                     {% if f.charge.state and f.charge.options and f.charge.state not in f.charge.options %}<option value="{{ f.charge.state }}" selected>{{ f.charge.state }} (current)</option>{% endif %}
                                     {% if not f.charge.options %}<option value="{{ f.charge.state or '' }}" selected>{{ f.charge.state or '—' }}</option>{% endif %}
                                 </select>
                             </td>
                             <td class="py-2 px-2">
-                                <select form="import-form-{{ p.n }}" name="mode" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                <select form="tou-form-{{ p.n }}" name="mode" class="field tou-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     {% for opt in (f.mode.options or []) %}<option value="{{ opt }}" {% if f.mode.state == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
                                     {% if f.mode.state and f.mode.options and f.mode.state not in f.mode.options %}<option value="{{ f.mode.state }}" selected>{{ f.mode.state }} (current)</option>{% endif %}
                                     {% if not f.mode.options %}<option value="{{ f.mode.state or '' }}" selected>{{ f.mode.state or '—' }}</option>{% endif %}
                                 </select>
                             </td>
                             <td class="py-2 px-2">
-                                <select form="import-form-{{ p.n }}" name="sell" class="field import-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                                <select form="tou-form-{{ p.n }}" name="sell" class="field tou-field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     <option value="on" {% if f.sell.state in ['on','1','true','True'] %}selected{% endif %}>On</option>
                                     <option value="off" {% if f.sell.state not in ['on','1','true','True'] %}selected{% endif %}>Off</option>
                                 </select>
                             </td>
-                            <td class="py-2 px-2"><input form="import-form-{{ p.n }}" type="number" name="voltage" step="{{ f.voltage.step or 0.1 }}" min="{{ f.voltage.min if f.voltage.min is not none else 0 }}" max="{{ f.voltage.max if f.voltage.max is not none else 100 }}" value="{{ f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' }}" class="field import-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
+                            <td class="py-2 px-2"><input form="tou-form-{{ p.n }}" type="number" name="voltage" step="{{ f.voltage.step or 0.1 }}" min="{{ f.voltage.min if f.voltage.min is not none else 0 }}" max="{{ f.voltage.max if f.voltage.max is not none else 100 }}" value="{{ f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' }}" class="field tou-field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"></td>
                             <td class="py-2 px-2 whitespace-nowrap">
-                                <button form="import-form-{{ p.n }}" type="submit" disabled class="btn save-sync-btn bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-1.5 px-3 rounded-lg text-sm font-medium shadow-sm" data-prog="{{ p.n }}"><i class="mdi mdi-content-save-move"></i> Save &amp; sync</button>
+                                <button form="tou-form-{{ p.n }}" type="submit" disabled class="btn save-sync-btn bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-1.5 px-3 rounded-lg text-sm font-medium shadow-sm" data-prog="{{ p.n }}"><i class="mdi mdi-content-save-move"></i> Save &amp; sync</button>
                             </td>
                         </tr>
                         {% endfor %}
@@ -348,7 +348,7 @@
 
     <div id="leave-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
         <div class="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-lg w-full card slide-down">
-            <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-alert text-amber-400"></i> Unsaved Import changes</h3>
+            <h3 class="text-lg font-semibold mb-2"><i class="mdi mdi-alert text-amber-400"></i> Unsaved Time of Use changes</h3>
             <p class="text-gray-300 text-sm mb-4">You have edited TOU program row(s) that haven’t been synced to the inverter. Sync them before leaving?</p>
             <div class="flex flex-wrap gap-2">
                 <button id="leave-sync" class="btn bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-sm font-medium">Sync all &amp; leave</button>
@@ -505,12 +505,12 @@
         dirty[n]=changed; row.classList.toggle('row-dirty', !!changed);
         var btn=row.querySelector('.save-sync-btn'); if(btn) btn.disabled = !changed;
       }
-      function refreshAllRows(){ document.querySelectorAll('.import-row').forEach(refreshRowState); }
+      function refreshAllRows(){ document.querySelectorAll('.tou-row').forEach(refreshRowState); }
       function hasDirty(){ return Object.keys(dirty).some(function(k){ return dirty[k]; }); }
-      function dirtyForms(){ return Array.prototype.filter.call(document.querySelectorAll('.import-form'), function(f){ var row=f.closest('.import-row'); return row && dirty[row.getAttribute('data-prog')]; }); }
-      document.querySelectorAll('.import-field').forEach(function(el){
-        el.addEventListener('change', function(){ var row=el.closest('.import-row'); if(row) refreshRowState(row); });
-        el.addEventListener('input', function(){ var row=el.closest('.import-row'); if(row) refreshRowState(row); });
+      function dirtyForms(){ return Array.prototype.filter.call(document.querySelectorAll('.tou-form'), function(f){ var row=f.closest('.tou-row'); return row && dirty[row.getAttribute('data-prog')]; }); }
+      document.querySelectorAll('.tou-field').forEach(function(el){
+        el.addEventListener('change', function(){ var row=el.closest('.tou-row'); if(row) refreshRowState(row); });
+        el.addEventListener('input', function(){ var row=el.closest('.tou-row'); if(row) refreshRowState(row); });
       });
       refreshAllRows();
 
@@ -538,10 +538,10 @@
         var f=pendingSaveForm; pendingSaveForm=null; hideSaveModal();
         f.dataset.confirmed = '1'; f.submit();
       });
-      document.querySelectorAll('.import-form').forEach(function(f){
+      document.querySelectorAll('.tou-form').forEach(function(f){
         f.addEventListener('submit', function(ev){
-          if(f.dataset.confirmed === '1'){ var row=f.closest('.import-row'); if(row){ dirty[row.getAttribute('data-prog')]=false; } return; }
-          var row=f.closest('.import-row'); if(!row) return;
+          if(f.dataset.confirmed === '1'){ var row=f.closest('.tou-row'); if(row){ dirty[row.getAttribute('data-prog')]=false; } return; }
+          var row=f.closest('.tou-row'); if(!row) return;
           if(!isRowChanged(row)){ ev.preventDefault(); return; }
           ev.preventDefault();
           showSaveModal(f, row);

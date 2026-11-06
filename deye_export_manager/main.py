@@ -651,11 +651,11 @@ async def index(request: Request):
     saved = request.query_params.get("saved")
     save_error = request.query_params.get("error")
     tab = request.query_params.get("tab") or "export"
-    if tab not in ("export", "import", "config"):
+    if tab not in ("export", "tou", "config"):
         tab = "export"
     tou_programs = await get_tou_programs()
-    import_saved = request.query_params.get("import_saved")
-    import_error = request.query_params.get("import_error")
+    tou_saved = request.query_params.get("tou_saved")
+    tou_error = request.query_params.get("tou_error")
     config_sections = await get_config_sections()
     config_saved = request.query_params.get("config_saved")
     config_error = request.query_params.get("config_error")
@@ -683,8 +683,8 @@ async def index(request: Request):
         save_error=save_error,
         tab=tab,
         tou_programs=tou_programs,
-        import_saved=import_saved,
-        import_error=import_error,
+        tou_saved=tou_saved,
+        tou_error=tou_error,
         config_sections=config_sections,
         config_saved=config_saved,
         config_error=config_error,
@@ -934,12 +934,12 @@ async def sync_from_inverter(request: Request):
 
 
 
-@app.post("/import/save_program/{n}")
-async def import_save_program(request: Request, n: int, time: str = Form(""), power: str = Form(""), capacity: str = Form(""), charge: str = Form(""), mode: str = Form(""), voltage: str = Form(""), sell: str = Form("off")):
+@app.post("/tou/save_program/{n}")
+async def tou_save_program(request: Request, n: int, time: str = Form(""), power: str = Form(""), capacity: str = Form(""), charge: str = Form(""), mode: str = Form(""), voltage: str = Form(""), sell: str = Form("off")):
     root_path = request.scope.get("root_path", "")
     from urllib.parse import quote
     if n < 1 or n > 6:
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote('Invalid program.')}", status_code=303)
+        return RedirectResponse(url=f"{root_path}/?tab=tou&tou_error={quote('Invalid program.')}", status_code=303)
     time_e = f"select.deye_prog{n}_time"
     charge_e = f"select.deye_prog{n}_charge"
     mode_e = f"select.deye_prog{n}_mode"
@@ -986,14 +986,14 @@ async def import_save_program(request: Request, n: int, time: str = Form(""), po
     ]:
         err = validate_select(label, value, st)
         if err:
-            return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: {err}')}", status_code=303)
+            return RedirectResponse(url=f"{root_path}/?tab=tou&tou_error={quote(f'Prog {n}: {err}')}", status_code=303)
 
     power_v, e = parse_num(power, st_power)
-    if e: return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: power {e}.')}", status_code=303)
+    if e: return RedirectResponse(url=f"{root_path}/?tab=tou&tou_error={quote(f'Prog {n}: power {e}.')}", status_code=303)
     cap_v, e = parse_num(capacity, st_cap)
-    if e: return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: capacity {e}.')}", status_code=303)
+    if e: return RedirectResponse(url=f"{root_path}/?tab=tou&tou_error={quote(f'Prog {n}: capacity {e}.')}", status_code=303)
     volt_v, e = parse_num(voltage, st_volt)
-    if e: return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(f'Prog {n}: voltage {e}.')}", status_code=303)
+    if e: return RedirectResponse(url=f"{root_path}/?tab=tou&tou_error={quote(f'Prog {n}: voltage {e}.')}", status_code=303)
     sell_on = str(sell).lower() in ("on", "1", "true", "yes")
     calls = [
         ("select", "select_option", {"entity_id": time_e, "option": time}),
@@ -1019,8 +1019,8 @@ async def import_save_program(request: Request, n: int, time: str = Form(""), po
             f"Applied: {', '.join(applied) if applied else 'none'}. "
             f"Failed: {'; '.join(errors)}"
         )
-        return RedirectResponse(url=f"{root_path}/?tab=import&import_error={quote(msg[:700])}", status_code=303)
-    return RedirectResponse(url=f"{root_path}/?tab=import&import_saved={n}", status_code=303)
+        return RedirectResponse(url=f"{root_path}/?tab=tou&tou_error={quote(msg[:700])}", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=tou&tou_saved={n}", status_code=303)
 
 
 
