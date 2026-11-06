@@ -1,4 +1,4 @@
-# Deye Export Manager (Home Assistant Add-on)
+# Deye Manager (Home Assistant Add-on)
 
 Custom Home Assistant add-on for viewing **live inverter vitals and historical graphs** (Overview), managing a **24-hour export-power schedule** (Export), viewing/editing **Deye inverter Time of Use (TOU) programs** (Time of Use), and adjusting selected **Deye inverter configuration** settings (Configuration). It uses the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar. **Overview** is the default landing tab.
 
@@ -76,7 +76,7 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
    ```text
    https://github.com/maverik-77/deye-export-manager
    ```
-3. Go back to the Apps/add-on store view, click **⋮ → Check for updates** / reload if needed, then find and install **Deye Export Manager**.
+3. Go back to the Apps/add-on store view, click **⋮ → Check for updates** / reload if needed, then find and install **Deye Manager**.
 4. Open the add-on page → **Configuration** tab and set:
    - `deye_entity`: the exact Home Assistant entity ID to control for **Export** (default `number.deye_max_sell_power`). Replace with your real entity if different.
    - `battery_percentage`: the battery SOC sensor for Export rules (default `sensor.deye_battery_soc`).
@@ -160,10 +160,10 @@ trigger:
 action:
   - service: notify.notify  # CHANGE to your notify service
     data:
-      title: "Deye Export Manager"
+      title: "Deye Manager"
       message: >-
         Export control entity {{ trigger.entity_id }} is {{ states(trigger.entity_id) }}.
-        The Deye Export Manager add-on may not be able to apply schedules.
+        The Deye Manager add-on may not be able to apply schedules.
 ```
 
 ### 2) Optional: safety clamp (use with caution)
@@ -189,7 +189,7 @@ action:
       value: 16000  # CHANGE: safe max; units must match the entity
   - service: notify.notify  # CHANGE to your notify service
     data:
-      title: "Deye Export Manager safety"
+      title: "Deye Manager safety"
       message: "Export limit exceeded threshold; clamped. Check schedule/inverter state."
 ```
 
@@ -214,7 +214,7 @@ action:
       title: "Deye export power changed"
       message: >-
         {{ trigger.entity_id }} changed from {{ trigger.from_state.state }} to {{ trigger.to_state.state }}.
-        If unexpected, open Deye Export Manager and check for schedule/inverter mismatch.
+        If unexpected, open Deye Manager and check for schedule/inverter mismatch.
 ```
 
 ### 4) Optional: daily review reminder
@@ -228,7 +228,7 @@ trigger:
 action:
   - service: notify.notify  # CHANGE to your notify service
     data:
-      title: "Deye Export Manager"
+      title: "Deye Manager"
       message: "Optional reminder: review your Deye export/TOU/settings if tariffs/plans changed."
 ```
 
