@@ -44,7 +44,7 @@
 
         <div class="flex gap-2 mb-6 border-b border-gray-700 pb-2">
             <a href="{{ root_path }}/?tab=export" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='export' %}active{% endif %}" data-tab="export"><i class="mdi mdi-calendar-clock"></i> Export</a>
-            <a href="{{ root_path }}/?tab=import" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='import' %}active{% endif %}" data-tab="import"><i class="mdi mdi-tune-variant"></i> Import (TOU)</a>
+            <a href="{{ root_path }}/?tab=import" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='import' %}active{% endif %}" data-tab="import"><i class="mdi mdi-tune-variant"></i> Time of Use</a>
         </div>
 
         {% if tab == 'export' %}
@@ -181,9 +181,12 @@
             </div>
         </div>
 
-        {% else %}{# import tab #}
+        {% else %}{# import tab / Time of Use #}
+        <div class="bg-red-900/35 border border-red-600/70 rounded-xl p-4 mb-6 card slide-down">
+            <p class="text-red-100 text-sm"><i class="mdi mdi-alert-octagon"></i> <strong>Warning:</strong> Any change you <strong>Save &amp; sync</strong> (or confirm to sync when leaving) on this page <strong>directly updates the inverter</strong> via Home Assistant. Review values carefully before saving.</p>
+        </div>
         <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-6 mb-8 card">
-            <h2 class="text-xl font-semibold mb-2 flex items-center gap-2"><i class="mdi mdi-tune-variant"></i> Import / Time of Use Programs (Deye inverter)</h2>
+            <h2 class="text-xl font-semibold mb-2 flex items-center gap-2"><i class="mdi mdi-tune-variant"></i> Time of Use Programs (Deye inverter)</h2>
             <p class="text-gray-400 text-sm mb-4">Shows the <strong>6 TOU programs</strong> (<code>deye_prog1</code>–<code>deye_prog6</code>) pulled <strong>live from Home Assistant/inverter on every page load</strong>. No local copy is kept. Rows are ordered by program time. Edit fields and use <strong>Save &amp; sync</strong> on each row to write to the inverter. If you leave with unsaved changes, you’ll be asked whether to sync them.</p>
             {% if import_saved %}<div class="mb-3 p-3 rounded-lg bg-green-900/40 border border-green-700/70 text-green-200 text-sm slide-down"><i class="mdi mdi-check-circle"></i> Program {{ import_saved }} synced to inverter (live values reloaded).</div>{% endif %}
             {% if import_error %}<div class="mb-3 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Import sync issue:</strong> {{ import_error }}</div>{% endif %}
