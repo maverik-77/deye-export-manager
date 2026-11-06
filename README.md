@@ -19,7 +19,7 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 - **Add rows in the table**, edit values, drag rows to rearrange the view, then click **Save schedule** (one action). New rows are created on save; existing rows are updated.
 - Per-slot columns (Export tab only): **Start/End**, **Power (W)**, **Default export (W)**, **Battery %** (0–100), **Enabled**. Power/default export are entered in **Watts** (`0–16000 W`).
 - **SOC-aware export (re-evaluated every minute, not latched):** for the active slot the add-on reads battery SOC from the configured `battery_percentage` sensor (default `sensor.deye_battery_soc`). If **SOC > Battery %** it applies the slot **Power (W)** to the export entity; if **SOC <= Battery %** it applies **Default export (W)**. If SOC is unavailable/invalid it applies **Default export (W)** (safe fallback) and shows status in the UI.
-- **Save validation:** enabled slots must cover the full day continuously with **no gaps/overlaps** (`00:00`–24:00). Use `00:00` as end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot.
+- **Save validation:** enabled slots must cover the full day continuously with **no gaps/overlaps** (`00:00`–24:00). Use `00:00` as end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot. `24:00` is not accepted. A single slot cannot cross midnight except by using `00:00` as the end; split cross-midnight ranges into two slots (e.g. `22:00–00:00` and `00:00–06:00`).
 - Pulls **live inverter value** from Home Assistant on page load / after restart, compares with the **SOC-effective schedule expected now**, and prompts you to choose **master** (inverter or schedule) if they differ.
 - Applies the effective export power automatically (checked every minute) and via **Apply schedule to inverter now**.
 - Table display reloads ordered by **start time** (longer duration first when start times match). Schedule logic is time-based.
@@ -195,7 +195,8 @@ action:
 - **Entity error/not found (Export):** check `deye_entity` in add-on Configuration and confirm it exists in **Developer Tools → States**.
 - **TOU/Import read or sync errors:** confirm the `deye_prog1`–`deye_prog6` entities exist, are available, and accept the selected options/values for your integration. Check add-on **Log** for HA API/service errors.
 - **Schedule not applying:** check add-on **Log**; verify add-on is running, entity is controllable, and units/scale are correct. Use **Apply schedule to inverter now** to test.
-- **Save failed / coverage error (Export):** enabled slots must cover 00:00–24:00 with no gaps/overlaps. Use `00:00` end for midnight.
+- **Save failed / coverage error (Export):** enabled slots must cover 00:00–24:00 with no gaps/overlaps. Use `00:00` end for midnight (`24:00` not accepted); split cross-midnight ranges into two slots. If a stale row id is detected during save, reload the page and try again.
+- **Time of Use sync incomplete:** HA service calls are not atomic; the error shows which entities were applied and which failed. Review inverter/live values before retrying. SOC out of range (not 0–100) is treated as unavailable and the Export schedule falls back to Default export (W).
 - **Mismatch prompt:** choose the correct master after reviewing live inverter vs. expected schedule.
 - **After updating add-on:** **Check for updates**, rebuild/update, restart, and hard-refresh the ingress UI if it looks stale.
 - **Separate data:** old standalone app data is not auto-imported into the add-on’s `/data/schedules.db`. TOU data is not stored locally.
