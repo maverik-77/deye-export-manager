@@ -55,7 +55,7 @@
                 Value mismatch — choose master
             </h2>
             <p class="text-amber-100 mb-1">{% if mismatch.startup_check %}Checked on first load after (re)start. {% endif %}Current time: <strong>{{ mismatch.current_time }}</strong></p>
-            <p class="mb-4">Inverter reports <strong>{{ "%.0f"|format(mismatch.inverter_kw * 1000) }} W</strong> ({{ "%.3f"|format(mismatch.inverter_kw) }} kW), but the app schedule expects <strong>{{ "%.0f"|format(mismatch.schedule_kw * 1000) }} W</strong> ({{ "%.3f"|format(mismatch.schedule_kw) }} kW) now.{% if mismatch.active_slot %} (Active slot {{ mismatch.active_slot.start_time }}–{{ mismatch.active_slot.end_time }}){% else %} (No enabled slot covers this time; schedule defaults to 0 kW.){% endif %}</p>
+            <p class="mb-4">Inverter reports <strong>{{ "%.0f"|format(mismatch.inverter_kw * 1000) }} W</strong> ({{ "%.3f"|format(mismatch.inverter_kw) }} kW), but the app schedule expects <strong>{{ "%.0f"|format(mismatch.schedule_kw * 1000) }} W</strong> (SOC-effective; configured {{ "%.0f"|format(mismatch.configured_kw * 1000) }} W) now.{% if mismatch.active_slot %} (Active slot {{ mismatch.active_slot.start_time }}–{{ mismatch.active_slot.end_time }}, default {{ mismatch.active_slot.default_export_w|default(0) }} W, battery threshold {{ mismatch.active_slot.battery_soc_pct|default(0) }}%){% else %} (No enabled slot covers this time; schedule defaults to 0 W.){% endif %}{% if mismatch.soc_status and mismatch.soc_status.ok %} Battery SOC: {{ mismatch.soc_status.soc|round(1) }}%.{% elif mismatch.soc_status %} Battery SOC unavailable ({{ mismatch.soc_status.error }}); fallback to Default export.{% endif %}</p>
             <p class="text-sm text-amber-200 mb-4">Which value should be treated as the master? The other will be updated accordingly.</p>
             <div class="flex flex-wrap gap-3">
                 <form action="{{ root_path }}/resolve_mismatch" method="post" class="inline">
@@ -71,7 +71,7 @@
                     </button>
                 </form>
             </div>
-            <p class="text-xs text-amber-300 mt-3">“Use inverter value” updates the currently active slot (or creates a 00:00–23:59 baseline if no slot covers now). “Use schedule value” sends the expected schedule power to the inverter (converted as needed).</p>
+            <p class="text-xs text-amber-300 mt-3">“Use inverter value” updates the currently active slot’s Power (W) (or creates a 00:00–00:00 baseline if no slot covers now). “Use schedule value” sends the SOC-effective expected export to the inverter now (re-evaluated by rules/SOC on later ticks).</p>
         </div>
         {% endif %}
 
@@ -96,9 +96,10 @@
                     {% endif %}
                 </div>
                 <div class="bg-gray-700/70 border border-gray-600/40 rounded-lg p-3 transition hover:border-gray-500/60">
-                    <div class="text-gray-400">Schedule expected now</div>
-                    <div><span class="font-semibold">{{ "%.0f"|format(expected_kw * 1000) }} W</span> <span class="text-gray-400">({{ "%.3f"|format(expected_kw) }} kW)</span> at current time</div>
-                    {% if active_slot %}<div class="text-gray-400 text-xs">Active slot: {{ active_slot.start_time }}–{{ active_slot.end_time }} ({{ "%.0f"|format(active_slot.power_kw * 1000) }} W)</div>{% else %}<div class="text-gray-400 text-xs">No enabled slot covers current time (defaults to 0 kW)</div>{% endif %}
+                    <div class="text-gray-400">Schedule expected now (SOC-aware)</div>
+                    <div><span class="font-semibold">{{ effective_w }} W</span> <span class="text-gray-400">effective (configured slot {{ "%.0f"|format(configured_kw * 1000) }} W)</span> at current time</div>
+                    {% if active_slot %}<div class="text-gray-400 text-xs">Active slot: {{ active_slot.start_time }}–{{ active_slot.end_time }} | Power {{ "%.0f"|format(active_slot.power_kw * 1000) }} W | Default {{ active_slot.default_export_w|default(0) }} W | Battery threshold {{ active_slot.battery_soc_pct|default(0) }}%</div>{% else %}<div class="text-gray-400 text-xs">No enabled slot covers current time (defaults to 0 W)</div>{% endif %}
+                    <div class="text-gray-400 text-xs mt-1">Battery sensor: <span class="font-mono">{{ battery_percentage }}</span> — {% if soc_status and soc_status.ok %}<span class="text-green-300">{{ soc_status.soc|round(1) }}%</span> ({{ soc_reason }}){% else %}<span class="text-red-400">unavailable{% if soc_status and soc_status.error %}: {{ soc_status.error }}{% endif %}</span> — fallback to Default export{% endif %}</div>
                 </div>
                 <div class="bg-gray-700/70 border border-gray-600/40 rounded-lg p-3 transition hover:border-gray-500/60">
                     <div class="text-gray-400">Database / last applied</div>
@@ -138,6 +139,8 @@
                             <th class="py-2 pr-2">Start</th>
                             <th class="py-2 pr-2">End</th>
                             <th class="py-2 pr-2">Power (W)</th>
+                            <th class="py-2 pr-2" title="Applied when battery SOC is at/below Battery % or SOC unavailable">Default export (W)</th>
+                            <th class="py-2 pr-2" title="If SOC > Battery %, use Power (W); if SOC <= Battery %, use Default export (W)">Battery %</th>
                             <th class="py-2 pr-2">Enabled</th>
                             <th class="py-2">Actions</th>
                         </tr>
@@ -150,6 +153,8 @@
                             <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="{{ slot.start_time }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>
                             <td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="{{ slot.end_time }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>
                             <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="{{ '%.0f'|format(slot.power_kw * 1000) }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="{{ slot.default_export_w|default(0) }}" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="Fallback export when SOC is at/below threshold or unavailable"></td>
+                            <td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="{{ slot.battery_soc_pct|default(0) }}" required class="field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="SOC threshold (0–100%)"></td>
                             <td class="py-2 pr-2">
                                 <select form="save-all-slots" name="enabled" class="field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none">
                                     <option value="1" {% if slot.enabled %}selected{% endif %}>Yes</option>
@@ -162,7 +167,7 @@
                         </tr>
                         {% endfor %}
                         {% if not slots %}
-                        <tr><td colspan="7" class="py-4 text-center text-gray-400">No configuration stored in local database. Click <strong>Add row</strong>, enter slots, then <strong>Save schedule</strong> (enabled slots must cover 24h).</td></tr>
+                        <tr><td colspan="9" class="py-4 text-center text-gray-400">No configuration stored in local database. Click <strong>Add row</strong>, enter slots, then <strong>Save schedule</strong> (enabled slots must cover 24h).</td></tr>
                         {% endif %}
                     </tbody>
                 </table>
@@ -284,6 +289,8 @@
             + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="start_time" value="00:00" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>'
             + '<td class="py-2 pr-2"><input form="save-all-slots" type="time" name="end_time" value="00:00" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono"></td>'
             + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="power_w" step="1" min="0" max="16000" value="0" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none text-yellow-500 font-semibold"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="default_export_w" step="1" min="0" max="16000" value="0" required class="field w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="Fallback export when SOC at/below threshold or unavailable"></td>'
+            + '<td class="py-2 pr-2"><input form="save-all-slots" type="number" name="battery_soc_pct" step="1" min="0" max="100" value="0" required class="field w-20 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none" title="SOC threshold"></td>'
             + '<td class="py-2 pr-2"><select form="save-all-slots" name="enabled" class="field px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none"><option value="1" selected>Yes</option><option value="0">No</option></select></td>'
             + '<td class="py-2 whitespace-nowrap"><button type="button" class="btn px-2 py-1 hover:bg-red-600/90 rounded-md text-xs remove-new-row" title="Remove unsaved row"><i class="mdi mdi-close"></i> Remove</button></td>';
           tbody.appendChild(tr);
