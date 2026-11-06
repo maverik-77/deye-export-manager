@@ -12,7 +12,7 @@ import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
 import httpx
 
-app = FastAPI(title="Deye Export Manager")
+app = FastAPI(title="Deye Manager")
 
 STARTUP_CHECK_DONE = False
 

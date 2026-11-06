@@ -1,4 +1,4 @@
-name: "Deye Export Manager"
+name: "Deye Manager"
 version: "1.0.26"
 slug: "deye_export_manager"
 description: "Custom export scheduler for Deye inverters with 24-hour schedule management"
@@ -12,7 +12,7 @@ boot: auto
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:transmission-tower-export
-panel_title: Deye Export
+panel_title: Deye Manager
 homeassistant_api: true
 options:
   deye_entity: "number.deye_max_sell_power"
