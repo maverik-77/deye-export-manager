@@ -716,7 +716,7 @@ async def add_slot(request: Request, start_time: str = Form(...), end_time: str 
     conn.commit()
     conn.close()
     root_path = request.scope.get("root_path", "")
-    return RedirectResponse(url=f"{root_path}/", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
 
 @app.post("/delete_slot/{slot_id}")
 async def delete_slot(request: Request, slot_id: int):
@@ -726,7 +726,7 @@ async def delete_slot(request: Request, slot_id: int):
     conn.commit()
     conn.close()
     root_path = request.scope.get("root_path", "")
-    return RedirectResponse(url=f"{root_path}/", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
 
 @app.post("/toggle_slot/{slot_id}")
 async def toggle_slot(request: Request, slot_id: int):
@@ -736,7 +736,7 @@ async def toggle_slot(request: Request, slot_id: int):
     conn.commit()
     conn.close()
     root_path = request.scope.get("root_path", "")
-    return RedirectResponse(url=f"{root_path}/", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
 
 
 @app.post("/update_slot/{slot_id}")
@@ -758,7 +758,7 @@ async def update_slot(request: Request, slot_id: int, start_time: str = Form(...
     conn.commit()
     conn.close()
     root_path = request.scope.get("root_path", "")
-    return RedirectResponse(url=f"{root_path}/", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
 
 
 
@@ -782,7 +782,7 @@ async def save_slots(request: Request):
         battery_pcts = ["0"] * len(ids)
     if not (len(ids) == len(starts) == len(ends) == len(powers) == len(enableds)):
         from urllib.parse import quote
-        return RedirectResponse(url=f"{root_path}/?error={quote('Malformed form submission.')}", status_code=303)
+        return RedirectResponse(url=f"{root_path}/?tab=export&error={quote('Malformed form submission.')}", status_code=303)
     slots = []
     for i, sid in enumerate(ids):
         try:
@@ -801,12 +801,12 @@ async def save_slots(request: Request):
             }
         except Exception:
             from urllib.parse import quote
-            return RedirectResponse(url=f"{root_path}/?error={quote(f'Invalid values in row {i+1}.')}", status_code=303)
+            return RedirectResponse(url=f"{root_path}/?tab=export&error={quote(f'Invalid values in row {i+1}.')}", status_code=303)
         slots.append(sl)
     ok, err = _validate_24h_coverage(slots, require_enabled=True)
     if not ok:
         from urllib.parse import quote
-        return RedirectResponse(url=f"{root_path}/?error={quote(err)}", status_code=303)
+        return RedirectResponse(url=f"{root_path}/?tab=export&error={quote(err)}", status_code=303)
     from urllib.parse import quote
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -825,13 +825,13 @@ async def save_slots(request: Request):
                 if c.rowcount == 0:
                     conn.rollback()
                     return RedirectResponse(
-                        url=f"{root_path}/?error={quote('Row with id ' + str(sl['db_id']) + ' no longer exists. Reload the page and try saving again.')}",
+                        url=f"{root_path}/?tab=export&error={quote('Row with id ' + str(sl['db_id']) + ' no longer exists. Reload the page and try saving again.')}",
                         status_code=303,
                     )
         conn.commit()
     finally:
         conn.close()
-    return RedirectResponse(url=f"{root_path}/?saved=1", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export&saved=1", status_code=303)
 
 @app.get("/api/slots")
 async def api_slots():
@@ -856,7 +856,7 @@ async def resolve_mismatch(request: Request, master: str = Form(...)):
         conn.close()
     elif master == "inverter":
         if not (ha_status.get("ok") and ha_status.get("power_kw") is not None):
-            return RedirectResponse(url=f"{root_path}/", status_code=303)
+            return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
         inv_kw = max(0.0, min(16.0, round(float(ha_status["power_kw"]), 2)))
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -881,7 +881,7 @@ async def resolve_mismatch(request: Request, master: str = Form(...)):
         c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_applied', ?)", (str(int(round(inv_kw * 1000))),))
         conn.commit()
         conn.close()
-    return RedirectResponse(url=f"{root_path}/", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
 
 
 @app.get("/api/status")
@@ -912,7 +912,7 @@ async def api_apply_now(request: Request):
     if changed:
         await apply_to_ha(active_power)
     root_path = request.scope.get("root_path", "")
-    return RedirectResponse(url=f"{root_path}/", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
 
 
 @app.post("/sync_from_inverter")
@@ -938,7 +938,7 @@ async def sync_from_inverter(request: Request):
         conn.commit()
     conn.close()
     root_path = request.scope.get("root_path", "")
-    return RedirectResponse(url=f"{root_path}/", status_code=303)
+    return RedirectResponse(url=f"{root_path}/?tab=export", status_code=303)
 
 
 
