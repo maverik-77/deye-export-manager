@@ -9,7 +9,7 @@ Custom Home Assistant add-on for viewing **live inverter vitals and historical g
 **You do not need to create any Home Assistant automations for this add-on to work.**
 
 - **Overview tab:** live vitals and historical graphs are **pulled from Home Assistant** (current states + HA history/recorder). Read-only; no automations required.
-- **Export tab (schedule):** core scheduling and applying export power are handled by the add-on itself (checks every minute, plus **Apply schedule to inverter now**), as long as the add-on is running, has Home Assistant API access (`homeassistant_api` / Supervisor token), and `deye_entity` is correct/controllable.
+- **Export tab (schedule):** core scheduling and applying export power are handled by the add-on itself (checks every minute, plus **Save & Apply schedule to inverter now**), as long as the add-on is running, has Home Assistant API access (`homeassistant_api` / Supervisor token), and `deye_entity` is correct/controllable.
 - **Time of Use tab (TOU programs):** values are **pulled live from Home Assistant/inverter on every page load** and changes are written only when you click **Save & sync** on a row and **confirm** the old → new change (or confirm the unsaved-leave prompt). No automations required.
 - **Configuration tab:** values are **pulled live** on page load. Changes are written only when you edit a setting, click **Apply**, and **confirm** the old → new change. No automations required.
 
@@ -20,8 +20,10 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 ### Overview tab (live vitals + historical graphs)
 - **Default landing tab.** Read-only view of inverter vitals and history pulled from Home Assistant (no local storage).
 - **Vital details (live):** status/battery (e.g. grid connected, SOC, battery power/voltage/current/temperature), power flow (PV, grid, load, battery, essential, grid CT where available), grid/inverter (voltage, frequency, radiator/DC transformer temperature where available), and today/energy values (day/total PV, load, grid import/export, battery charge/discharge where available). Entities are shown only when available/readable.
-- **Historical graphs (HA history/recorder):** interactive charts rendered with Chart.js (CDN) using Home Assistant history data. Includes power flow, battery SOC, battery voltage/current, grid voltage/frequency, and temperatures (for available `deye_*` entities). Range presets: **6h, 24h, 3d, 7d** with refresh. Data is downsampled for responsiveness; missing entities/points are handled gracefully.
-- **Data source:** uses the add-on’s Supervisor/Home Assistant API access (`/api/states` and history). Graph availability depends on entities existing and Home Assistant recorder/history having data.
+- **Snapshot charts (live, current values at page load/refresh):** rendered with Chart.js (CDN). Includes **Today’s Energy Mix** (doughnut, kWh) and **Current Power Snapshot** (bar, W, signed values supported) using currently available `deye_*` values.
+- **Historical graphs (HA history/recorder):** interactive Chart.js time-series from Home Assistant history. Includes power flow, solar & load, battery power, battery SOC, battery voltage/current, grid voltage/frequency, and temperatures (battery, radiator, DC transformer) for available `deye_*` entities. Range presets: **6h, 24h, 3 days, 7 days, last 30 days, last 24 months, this year (YTD), last year** with refresh. Data is downsampled for responsiveness; missing entities/points are handled gracefully.
+- **Long-range history note:** longer ranges use adaptive HA history fetching. Results depend on **Home Assistant recorder/history retention**; older data may be sparse or unavailable if purged (HA long-term statistics are not used by the current history graph implementation).
+- **Data source:** uses the add-on’s Supervisor/Home Assistant API access (`/api/states` and history). Graph/chart availability depends on entities existing and Home Assistant recorder/history having data.
 
 ### Export tab (local schedule, stored in add-on DB)
 - 24-hour export schedule managed in the add-on UI (ingress; no host port mapping).
@@ -31,7 +33,9 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 - **SOC-aware export (re-evaluated every minute, not latched):** for the active slot the add-on reads battery SOC from the configured `battery_percentage` sensor (default `sensor.deye_battery_soc`). If **SOC > Battery %** it applies the slot **Power (W)** to the export entity; if **SOC <= Battery %** it applies **Default export (W)**. If SOC is unavailable/invalid/out of range (not 0–100) it applies **Default export (W)** (safe fallback) and shows status in the UI.
 - **Save validation:** enabled slots must cover the full day continuously with **no gaps/overlaps** (`00:00`–24:00). Use `00:00` as end time for midnight (e.g. `22:00–00:00`), or `00:00–00:00` for an all-day slot. `24:00` is not accepted. A single slot cannot cross midnight except by using `00:00` as the end; split cross-midnight ranges into two slots (e.g. `22:00–00:00` and `00:00–06:00`).
 - Pulls **live inverter value** from Home Assistant on page load / after restart, compares with the **SOC-effective schedule expected now**, and prompts you to choose **master** (inverter or schedule) if they differ.
-- Applies the effective export power automatically (checked every minute) and via **Apply schedule to inverter now**.
+- Applies the effective export power automatically (checked every minute) and via **Save & Apply schedule to inverter now** (saves and validates the current table, then applies only if validation succeeds).
+- **Current timeslot indicator:** a heartbeat glow pulse highlights the Export row that covers the **current time**. The highlight is **server-rendered at page load/save** and **does not move dynamically** while editing/adding rows or when the clock/timeslot changes; it updates after the page is saved/reloaded.
+- **Tab behavior:** after save/actions, the UI stays on the **Export** tab.
 - Table display reloads ordered by **start time** (longer duration first when start times match). Schedule logic is time-based.
 
 ### Time of Use tab (TOU programs, live read/write; no local copy)
@@ -42,6 +46,8 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 - **Unsaved changes:** if you edit Time of Use rows and try to leave/navigate away without saving, the UI prompts whether to **Sync all & leave**, **Leave without syncing**, or **Cancel**.
 - **Partial-sync reporting:** HA service calls are **not atomic**. If a sync fails partway through, the error reports which entities were **Applied** and which **Failed**; review live inverter values before retrying.
 - **Select validation (fail-closed):** if a select entity’s state/options cannot be verified, or the selected value is invalid, sync is blocked with a clear error.
+- **Current program indicator:** a heartbeat glow pulse highlights the TOU program row whose time window covers the **current time**. The highlight is **server-rendered at page load/save** and **does not move dynamically** while editing; it updates after save/reload.
+- **Tab behavior:** after save/sync actions, the UI stays on the **Time of Use** tab.
 - **Entity mapping (current implementation):** for each program `N` = 1–6: `select.deye_progN_time`, `number.deye_progN_power`, `number.deye_progN_capacity`, `select.deye_progN_charge`, `select.deye_progN_mode`, `switch.deye_progN_sell`, `number.deye_progN_voltage`. Verify these entities exist and match your inverter/integration before relying on writes.
 
 ### Configuration tab (live read/write; no local copy)
@@ -50,12 +56,16 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 - **Per-entity Apply with safety checks:** editable widgets (select/switch/number) use live HA options/min/max/step/units where available. **Apply is disabled until the value changes**. Clicking Apply shows an **old → new confirmation** and requires explicit confirmation before writing. Applying **directly updates the inverter** via Home Assistant.
 - **Read-only status indicators:** status fields are shown but not editable where configured (e.g. `binary_sensor.deye_grid_connected` and the Inverter Enabled status indicator in Inverter Status). `switch.deye_near_realtime` is editable in Inverter Status; `switch.deye_inverter_enabled` remains editable in Mode and Control.
 - **Allowlisted writes / validation:** only entities defined for the Configuration tab can be written. Read-only fields are rejected. Select options are validated **fail-closed** when options cannot be verified. Number values are clamped to HA min/max when readable. Errors are shown clearly and values reload live after a successful apply.
+- **Tab behavior:** after apply/actions, the UI stays on the **Configuration** tab and reloads live values.
 - **Current allowlisted Configuration entities (implementation):**
   - **Battery Configuration:** `select.deye_bms_protocol`; `number.deye_battery_max_charge_current`, `number.deye_battery_max_discharge_current`, `number.deye_grid_charge_battery_current`, `number.deye_battery_equalization_voltage`, `number.deye_battery_absorption_voltage`, `number.deye_battery_float_voltage`, `number.deye_battery_shutdown_capacity`, `number.deye_battery_restart_capacity`, `number.deye_battery_low_capacity`, `number.deye_battery_shutdown_voltage`, `number.deye_battery_restart_voltage`, `number.deye_battery_low_voltage`.
   - **Grid Settings:** `switch.deye_grid_charge_enabled`, `switch.deye_grid_always_on`, `switch.deye_grid_peak_shaving`; `number.deye_grid_peak_shaving_power`, `number.deye_grid_trickle_feed_power`.
   - **Mode and Control:** `switch.deye_inverter_enabled`, `switch.deye_use_timer`, `switch.deye_priority_load`, `switch.deye_solar_export`, `switch.deye_peak_shaving`, `switch.deye_gen_peak_shaving`; `number.deye_gen_peak_shaving_power`; `select.deye_load_limit`, `select.deye_aux_port_usage`; `number.deye_max_solar_power`, `number.deye_max_sell_power`.
   - **Inverter Status:** `binary_sensor.deye_grid_connected` (read-only), `switch.deye_inverter_enabled` (read-only status indicator), `switch.deye_near_realtime` (editable).
 - **Safety:** verify entity IDs/behavior for your inverter/integration before relying on writes. Configuration changes can affect inverter operation.
+
+### UI notes
+- **Responsive layout:** the ingress UI is designed for desktop, tablets, and phones. On small screens, data tables adapt to a card-like layout while preserving the same forms, save/apply/validation flows, and safety confirmations.
 
 ## Prerequisites
 
@@ -103,7 +113,7 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
    - **Drag** handle: rearranges rows for viewing/editing (visual only; schedule is time-based and reloads ordered by start time).
    - Edit Start/End/Power (W)/Default export (W)/Battery %/Enabled, then click **Save schedule**.
 4. **Save validation:** enabled slots must form a complete 24-hour partition (00:00–24:00, contiguous, no overlaps). If validation fails, an error is shown and the page reloads from the DB (unsaved edits/new rows from that attempt are not kept).
-5. **Apply schedule to inverter now** (in the table controls): applies the currently expected SOC-effective value immediately (if different from last applied).
+5. **Save & Apply schedule to inverter now** (in the table controls): validates and saves the current Export table to the local DB, then applies the currently expected SOC-effective value immediately if validation succeeds (and if different from last applied).
 
 ### Time of Use tab
 1. Open **Time of Use** — the page **pulls live TOU program values from HA/inverter**.
@@ -242,7 +252,7 @@ action:
 - **Time of Use read or sync errors:** confirm the `deye_prog1`–`deye_prog6` entities exist, are available, and accept the selected options/values for your integration. Check add-on **Log** for HA API/service errors.
 - **Time of Use sync incomplete:** HA service calls are not atomic; the error shows which entities were **Applied** and which **Failed**. Review inverter/live values before retrying.
 - **Configuration read/apply errors:** confirm the relevant `deye_*` entity exists and is available. Select applies are fail-closed when options cannot be verified. Read-only/allowlisted fields cannot be changed from the Configuration tab. Check add-on **Log** for HA API/service errors.
-- **Schedule not applying:** check add-on **Log**; verify add-on is running, entity is controllable, and units/scale are correct. Use **Apply schedule to inverter now** to test.
+- **Schedule not applying:** check add-on **Log**; verify add-on is running, entity is controllable, and units/scale are correct. Use **Save & Apply schedule to inverter now** to test (this also saves/validates the current table).
 - **SOC unavailable/invalid/out of range:** Export SOC logic treats SOC outside 0–100 (or unavailable/invalid) as unavailable and falls back to **Default export (W)** for the active slot.
 - **Save failed / coverage error (Export):** enabled slots must cover 00:00–24:00 with no gaps/overlaps. Use `00:00` end for midnight (`24:00` not accepted); split cross-midnight ranges into two slots. If a stale row id is detected during save, reload the page and try again.
 - **Mismatch prompt:** choose the correct master after reviewing live inverter vs. expected schedule.
