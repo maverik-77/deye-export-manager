@@ -108,6 +108,13 @@
             </div>
 
             <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-5 mb-6 card">
+                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2"><i class="mdi mdi-chart-box-outline"></i> Snapshot Charts</h2>
+                <p class="text-sm text-gray-400 mb-4">Current live values (from the latest HA state at page load). Charts update after refresh/reload.</p>
+                <div id="snapshot-charts" class="grid grid-cols-1 xl:grid-cols-2 gap-4"></div>
+                <p id="snapshot-status" class="text-sm text-gray-400 mt-3 hidden"></p>
+            </div>
+
+            <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-5 mb-6 card">
                 <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <h2 class="text-xl font-semibold flex items-center gap-2"><i class="mdi mdi-chart-line"></i> Historical Graphs</h2>
                     <div class="flex items-center gap-2">
@@ -738,14 +745,77 @@
       var overview;
       try { overview = JSON.parse(dataEl.textContent || '{}'); } catch(e){ overview = {}; }
       var graphs = (overview && overview.graphs) ? overview.graphs : [];
+      var snapshotCharts = (overview && overview.snapshot_charts) ? overview.snapshot_charts : [];
       var chartsWrap = document.getElementById('history-charts');
+      var snapshotWrap = document.getElementById('snapshot-charts');
+      var snapshotStatusEl = document.getElementById('snapshot-status');
       var statusEl = document.getElementById('history-status');
       var rangeEl = document.getElementById('history-range');
       var refreshBtn = document.getElementById('history-refresh');
       var chartInstances = [];
-      var colors = ['#facc15','#60a5fa','#34d399','#f87171','#a78bfa','#fb923c','#22d3ee','#e879f9','#94a3b8'];
+      var snapshotInstances = [];
+      var colors = ['#facc15','#60a5fa','#34d399','#f87171','#a78bfa','#fb923c','#22d3ee','#e879f9','#94a3b8','#f472b6','#4ade80','#38bdf8'];
       function setStatus(msg, isErr){ if(statusEl){ statusEl.textContent = msg; statusEl.className = 'text-sm mb-4 ' + (isErr ? 'text-red-400' : 'text-gray-400'); } }
+      function setSnapshotStatus(msg, isErr){ if(!snapshotStatusEl) return; if(!msg){ snapshotStatusEl.classList.add('hidden'); snapshotStatusEl.textContent=''; return; } snapshotStatusEl.textContent = msg; snapshotStatusEl.className = 'text-sm mt-3 ' + (isErr ? 'text-red-400' : 'text-gray-400'); snapshotStatusEl.classList.remove('hidden'); }
       function destroyCharts(){ chartInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} }); chartInstances=[]; }
+      function destroySnapshotCharts(){ snapshotInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} }); snapshotInstances=[]; }
+      function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function buildSnapshotCharts(){
+        if(!snapshotWrap) return;
+        destroySnapshotCharts(); snapshotWrap.innerHTML = '';
+        if(!window.Chart){ setSnapshotStatus('Chart.js failed to load; snapshot charts unavailable.', true); return; }
+        if(!snapshotCharts.length){ setSnapshotStatus('No snapshot chart configuration available.', true); return; }
+        var rendered = 0;
+        snapshotCharts.forEach(function(sc, sci){
+          var items = sc.items || [];
+          var labels = [], vals = [], bg = [];
+          items.forEach(function(it, ii){
+            var v = it.value;
+            if(v === null || v === undefined || isNaN(Number(v))) return;
+            v = Number(v);
+            if(sc.chart_type === 'doughnut' && Math.abs(v) < 0.0001) return;
+            labels.push(it.label || it.entity_id);
+            vals.push(v);
+            bg.push(colors[(sci*3 + ii) % colors.length]);
+          });
+          var card = document.createElement('div');
+          card.className = 'bg-gray-900/35 border border-gray-700/60 rounded-xl p-4';
+          if(!labels.length){
+            card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+esc(sc.title||'Chart')+(sc.unit?' <span class="text-gray-400 font-normal">('+esc(sc.unit)+')</span>':'')+'</h3><p class="text-sm text-gray-400">No numeric data available for this chart (entities may be unavailable or values are zero for this chart type).</p>';
+            snapshotWrap.appendChild(card);
+            return;
+          }
+          rendered++;
+          card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+esc(sc.title||'Chart')+(sc.unit?' <span class="text-gray-400 font-normal">('+esc(sc.unit)+')</span>':'')+'</h3><div style="position:relative;height:240px"><canvas></canvas></div>';
+          snapshotWrap.appendChild(card);
+          var ctx = card.querySelector('canvas').getContext('2d');
+          var chartType = sc.chart_type || 'bar';
+          var cfg;
+          if(chartType === 'doughnut' || chartType === 'pie'){
+            cfg = {
+              type: chartType,
+              data: { labels: labels, datasets: [{ data: vals, backgroundColor: bg, borderColor: 'rgba(17,24,39,0.9)', borderWidth: 2 }] },
+              options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                plugins: { legend: { position: 'bottom', labels: { color: '#d1d5db', boxWidth: 10 } } }
+              }
+            };
+          } else {
+            cfg = {
+              type: 'bar',
+              data: { labels: labels, datasets: [{ label: sc.unit || 'Value', data: vals, backgroundColor: bg.map(function(c){ return c+'cc'; }), borderColor: bg, borderWidth: 1 }] },
+              options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                plugins: { legend: { display: false } },
+                scales: { x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(156,163,175,0.08)' } }, y: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(156,163,175,0.12)' } } }
+              }
+            };
+          }
+          snapshotInstances.push(new Chart(ctx, cfg));
+        });
+        if(!rendered && snapshotCharts.length){ setSnapshotStatus('Snapshot charts loaded, but no numeric values were available. Check entity availability.', true); }
+        else { setSnapshotStatus(''); }
+      }
       function buildCharts(history){
         if(!chartsWrap) return;
         destroyCharts(); chartsWrap.innerHTML = '';
@@ -768,7 +838,7 @@
           rendered++;
           var card = document.createElement('div');
           card.className = 'bg-gray-900/35 border border-gray-700/60 rounded-xl p-4';
-          card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+(g.title||'Graph')+(g.unit?' <span class="text-gray-400 font-normal">('+g.unit+')</span>':'')+'</h3><div class="chart-box" style="position:relative;height:220px"><canvas></canvas></div>';
+          card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+esc(g.title||'Graph')+(g.unit?' <span class="text-gray-400 font-normal">('+esc(g.unit)+')</span>':'')+'</h3><div class="chart-box" style="position:relative;height:220px"><canvas></canvas></div>';
           chartsWrap.appendChild(card);
           var ctx = card.querySelector('canvas').getContext('2d');
           var scales = { x: { type: 'time', ticks: { color: '#9ca3af', maxTicksLimit: 8 }, grid: { color: 'rgba(156,163,175,0.12)' } }, y: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(156,163,175,0.12)' } } };
@@ -799,8 +869,9 @@
         } catch(e){ destroyCharts(); if(chartsWrap) chartsWrap.innerHTML=''; setStatus('History error: '+(e && e.message ? e.message : e), true); }
       }
       if(rangeEl) rangeEl.addEventListener('change', loadHistory);
-      if(refreshBtn) refreshBtn.addEventListener('click', loadHistory);
+      if(refreshBtn) refreshBtn.addEventListener('click', function(){ loadHistory(); });
       // initial load
+      buildSnapshotCharts();
       if(graphs.length) loadHistory(); else setStatus('No overview graph configuration available.', true);
     })();
     </script>

@@ -683,9 +683,9 @@ async def index(request: Request):
         try:
             overview_data = await get_overview_data()
         except Exception as e:
-            overview_data = {"ok": False, "error": str(e), "groups": [], "graphs": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
+            overview_data = {"ok": False, "error": str(e), "groups": [], "graphs": [], "snapshot_charts": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
     else:
-        overview_data = {"ok": True, "groups": [], "graphs": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
+        overview_data = {"ok": True, "groups": [], "graphs": [], "snapshot_charts": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -1160,6 +1160,14 @@ OVERVIEW_GRAPH_SERIES = [
         ("sensor.deye_essential_power", "Essential"),
         ("sensor.deye_grid_ct_power", "Grid CT"),
     ]},
+    {"id": "solar_load", "title": "Solar & Load", "unit": "W", "type": "line", "entities": [
+        ("sensor.deye_pv_power", "PV"),
+        ("sensor.deye_load_power", "Load"),
+        ("sensor.deye_essential_power", "Essential"),
+    ]},
+    {"id": "battery_power", "title": "Battery Power", "unit": "W", "type": "line", "entities": [
+        ("sensor.deye_battery_power", "Battery Power"),
+    ]},
     {"id": "soc", "title": "Battery SOC", "unit": "%", "type": "line", "entities": [
         (BATTERY_PERCENTAGE, "SOC"),
     ]},
@@ -1174,6 +1182,26 @@ OVERVIEW_GRAPH_SERIES = [
     {"id": "temperatures", "title": "Temperatures", "unit": "°C", "type": "line", "entities": [
         ("sensor.deye_battery_temperature", "Battery"),
         ("sensor.deye_radiator_temperature", "Radiator"),
+        ("sensor.deye_dc_transformer_temperature", "DC Transformer"),
+    ]},
+]
+
+OVERVIEW_SNAPSHOT_CHARTS = [
+    {"id": "today_energy_mix", "title": "Today's Energy Mix", "chart_type": "doughnut", "unit": "kWh", "items": [
+        ("sensor.deye_day_pv_energy", "PV"),
+        ("sensor.deye_day_load_energy", "Load"),
+        ("sensor.deye_day_grid_import", "Grid Import"),
+        ("sensor.deye_day_grid_export", "Grid Export"),
+        ("sensor.deye_day_battery_charge", "Battery Charge"),
+        ("sensor.deye_day_battery_discharge", "Battery Discharge"),
+    ]},
+    {"id": "current_power_snapshot", "title": "Current Power Snapshot", "chart_type": "bar", "unit": "W", "items": [
+        ("sensor.deye_pv_power", "PV"),
+        ("sensor.deye_grid_power", "Grid"),
+        ("sensor.deye_load_power", "Load"),
+        ("sensor.deye_battery_power", "Battery"),
+        ("sensor.deye_essential_power", "Essential"),
+        ("sensor.deye_grid_ct_power", "Grid CT"),
     ]},
 ]
 
@@ -1277,7 +1305,22 @@ async def get_overview_data():
             gg = {k: v for k, v in g.items() if k != "entities"}
             gg["series"] = series
             graphs.append(gg)
-    return {"ok": True, "groups": groups, "graphs": graphs, "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    # snapshot charts (current values from vitals/state)
+    snapshot_charts = []
+    for sc in OVERVIEW_SNAPSHOT_CHARTS:
+        vals = []
+        for eid, label in sc.get("items", []):
+            st = by.get(eid)
+            num = None
+            if st and st.get("ok"):
+                num = _coerce_history_value(st.get("state"))
+            vals.append({"entity_id": eid, "label": label, "value": num, "unit": (st or {}).get("unit") or sc.get("unit") or ""})
+        has_data = any(v["value"] is not None for v in vals)
+        snapshot_charts.append({
+            "id": sc["id"], "title": sc["title"], "chart_type": sc["chart_type"], "unit": sc.get("unit") or "",
+            "items": vals, "has_data": has_data,
+        })
+    return {"ok": True, "groups": groups, "graphs": graphs, "snapshot_charts": snapshot_charts, "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 
 @app.get("/api/overview")
@@ -1285,7 +1328,7 @@ async def api_overview():
     try:
         return JSONResponse(await get_overview_data())
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e), "groups": [], "graphs": [], "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, status_code=200)
+        return JSONResponse({"ok": False, "error": str(e), "groups": [], "graphs": [], "snapshot_charts": [], "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, status_code=200)
 
 
 @app.get("/api/history")
