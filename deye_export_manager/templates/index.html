@@ -164,8 +164,11 @@
             </div>
 
             <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-5 mb-6 card">
-                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2"><i class="mdi mdi-chart-box-outline"></i> Snapshot Charts</h2>
-                <p class="text-sm text-gray-400 mb-4">Current live values (from the latest HA state at page load). Charts update after refresh/reload.</p>
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <h2 class="text-xl font-semibold flex items-center gap-2"><i class="mdi mdi-chart-box-outline"></i> Snapshot Charts</h2>
+                    <button id="snapshot-refresh" class="btn px-3 py-1.5 rounded-md text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200"><i class="mdi mdi-refresh"></i> Refresh</button>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">Current live values from the latest HA state. Use Refresh to update these charts.</p>
                 <div id="snapshot-charts" class="grid grid-cols-1 xl:grid-cols-2 gap-4"></div>
                 <p id="snapshot-status" class="text-sm text-gray-400 mt-3 hidden"></p>
             </div>
@@ -1075,6 +1078,26 @@
       }
       setInterval(refreshFlowGauges, 3000);
       document.addEventListener('visibilitychange', function(){ if(!document.hidden) refreshFlowGauges(); });
+
+      var snapshotRefreshBtn = document.getElementById('snapshot-refresh');
+      async function refreshSnapshotCharts(){
+        if(snapshotRefreshBtn){ snapshotRefreshBtn.disabled = true; snapshotRefreshBtn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Refreshing'; }
+        setSnapshotStatus('Refreshing snapshot charts...');
+        try {
+          var r = await fetch(rootPath + '/api/overview', { cache: 'no-store', headers: { 'Accept': 'application/json' } });
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          var j = await r.json();
+          if(j && j.ok === false && j.error) throw new Error(j.error);
+          if(j && j.snapshot_charts) snapshotCharts = j.snapshot_charts;
+          if(j && j.flow_gauges){ flowGauges = j.flow_gauges; buildFlowGauges(); }
+          buildSnapshotCharts();
+        } catch(e) {
+          setSnapshotStatus('Snapshot refresh failed: '+(e.message||e), true);
+        } finally {
+          if(snapshotRefreshBtn){ snapshotRefreshBtn.disabled = false; snapshotRefreshBtn.innerHTML = '<i class="mdi mdi-refresh"></i> Refresh'; }
+        }
+      }
+      if(snapshotRefreshBtn) snapshotRefreshBtn.addEventListener('click', refreshSnapshotCharts);
     })();
     </script>
 
