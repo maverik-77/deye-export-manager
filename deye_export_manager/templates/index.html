@@ -921,15 +921,16 @@
         makeGauge('gauge-grid', gridW, { color: gColor, max: 12000 });
         var gm = document.getElementById('gauge-grid-moon'); if(gm) gm.textContent = 'Grid: ' + fmtWPlain(gridW);
         var gv = document.getElementById('gauge-grid-v'); if(gv) gv.textContent = 'Voltage: ' + fmtV(gridV);
-        // Battery
+        // Battery (UI display swapped: draining shown as -, charging as +; red for -, green for +)
         var batW = (fg.battery||{}).power_w, soc = (fg.battery||{}).soc_pct;
-        var bColor = (batW!==null && batW!==undefined && Number(batW) < 0) ? '#ef4444' : '#10b981';
-        makeGauge('gauge-battery', batW, { color: bColor, max: 8000 });
+        var batDisp = (batW!==null && batW!==undefined && !isNaN(Number(batW))) ? -Number(batW) : null;
+        var bColor = (batDisp!==null && batDisp < 0) ? '#ef4444' : '#10b981';
+        makeGauge('gauge-battery', batDisp!==null ? batDisp : batW, { color: bColor, max: 8000 });
         var bm = document.getElementById('gauge-battery-moon');
         if(bm){
-          if(batW===null||batW===undefined||isNaN(Number(batW))) { bm.textContent = '— W'; bm.className = 'text-sm font-semibold leading-tight text-gray-300'; }
+          if(batDisp===null) { bm.textContent = '— W'; bm.className = 'text-sm font-semibold leading-tight text-gray-300'; }
           else {
-            var bw = Math.round(Number(batW));
+            var bw = Math.round(batDisp);
             bm.textContent = (bw>=0?'+':'')+bw+' W';
             bm.className = 'text-sm font-semibold leading-tight ' + (bw < 0 ? 'text-red-400' : 'text-green-400');
           }
