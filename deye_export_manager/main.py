@@ -1228,20 +1228,34 @@ async def get_ha_history(entity_ids, start_dt, end_dt=None):
     ids = [e for e in entity_ids if e in ALLOWED_HISTORY_ENTITIES]
     if not ids:
         return {}
+    # compute span for adaptive behavior
+    span_days = 1
+    try:
+        _end = end_dt or datetime.now().astimezone()
+        span_days = max(1, (_end - start_dt).total_seconds() / 86400.0)
+    except Exception:
+        span_days = 1
     params = {
         "filter_entity_id": ",".join(ids),
         "minimal_response": "1",
-        "significant_changes_only": "0",
+        "significant_changes_only": "1" if span_days > 14 else "0",
     }
     if end_dt:
         params["end_time"] = end_dt.isoformat()
     try:
+        timeout_s = 30.0
+        if span_days > 180:
+            timeout_s = 120.0
+        elif span_days > 30:
+            timeout_s = 60.0
+        elif span_days > 7:
+            timeout_s = 45.0
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{HA_URL}/api/history/period/{start_dt.isoformat()}",
                 headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
                 params=params,
-                timeout=30.0,
+                timeout=timeout_s,
             )
             if response.status_code >= 400:
                 return {"_error": f"HA history API error {response.status_code}"}
@@ -1332,17 +1346,46 @@ async def api_overview():
 
 
 @app.get("/api/history")
-async def api_history(request: Request, hours: int = 24):
-    try:
-        hours = max(1, min(168, int(hours)))
-    except Exception:
-        hours = 24
+async def api_history(request: Request, hours: int = 24, range: str = ""):
+    from datetime import timedelta
+    now = datetime.now().astimezone()
+    range_key = str(range or "").strip().lower()
+    end_dt = now
+    label = ""
+    if range_key in ("6h", "24h", "72h", "168h", "6", "24", "72", "168"):
+        h = int(''.join(ch for ch in range_key if ch.isdigit()) or hours or 24)
+        h = max(1, min(168, h))
+        start_dt = now - timedelta(hours=h)
+        label = f"{h}h"
+    elif range_key in ("month", "30d", "720h", "last_month", "1m"):
+        start_dt = now - timedelta(days=30)
+        label = "last 30 days"
+    elif range_key in ("24m", "last_24_months", "2y", "730d"):
+        start_dt = now - timedelta(days=730)
+        label = "last 24 months"
+    elif range_key in ("this_year", "ytd"):
+        start_dt = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        label = "this year"
+    elif range_key in ("last_year",):
+        y = now.year - 1
+        start_dt = now.replace(year=y, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_dt = now.replace(year=y, month=12, day=31, hour=23, minute=59, second=59, microsecond=0)
+        label = "last year"
+    else:
+        try:
+            h = max(1, min(17520, int(hours)))  # allow up to ~2 years for back-compat if passed
+        except Exception:
+            h = 24
+        start_dt = now - timedelta(hours=h)
+        label = f"{h}h"
     # gather entities for graphs (available ones will be requested client-side too, but return all allowed relevant)
     ids = list(ALLOWED_HISTORY_ENTITIES)
-    start_dt = datetime.now().astimezone() - __import__('datetime').timedelta(hours=hours)
-    end_dt = datetime.now().astimezone()
     data = await get_ha_history(ids, start_dt, end_dt)
-    return JSONResponse({"ok": "_error" not in data, "hours": hours, "series": data})
+    resp = {"ok": "_error" not in data, "series": data}
+    if range_key:
+        resp["range"] = range_key
+    resp["label"] = label
+    return JSONResponse(resp)
 
 
 if __name__ == "__main__":
