@@ -1195,7 +1195,7 @@ OVERVIEW_VITALS = [
     ]},
     {"id": "power", "title": "Power Flow", "entities": [
         {"key": "pv_power", "entity_id": "sensor.deye_pv_power", "label": "PV Power"},
-        {"key": "grid_power", "entity_id": "sensor.deye_grid_power", "label": "Grid Power"},
+        {"key": "grid_power", "entity_id": "sensor.deye_load_power", "label": "Grid Power"},
         {"key": "load_power", "entity_id": "sensor.deye_inverter_power", "label": "Load Power"},
         {"key": "essential_power", "entity_id": "sensor.deye_essential_power", "label": "Essential Power"},
         {"key": "grid_ct_power", "entity_id": "sensor.deye_grid_ct_power", "label": "Grid CT Power"},
@@ -1220,7 +1220,7 @@ OVERVIEW_VITALS = [
 OVERVIEW_GRAPH_SERIES = [
     {"id": "power_flow", "title": "Power Flow", "unit": "W", "type": "line", "entities": [
         ("sensor.deye_pv_power", "PV"),
-        ("sensor.deye_grid_power", "Grid"),
+        ("sensor.deye_load_power", "Grid"),
         ("sensor.deye_inverter_power", "Load"),
         ("sensor.deye_battery_power", "Battery"),
         ("sensor.deye_essential_power", "Essential"),
@@ -1263,7 +1263,7 @@ OVERVIEW_SNAPSHOT_CHARTS = [
     ]},
     {"id": "current_power_snapshot", "title": "Current Power Snapshot", "chart_type": "bar", "unit": "W", "items": [
         ("sensor.deye_pv_power", "PV"),
-        ("sensor.deye_grid_power", "Grid"),
+        ("sensor.deye_load_power", "Grid"),
         ("sensor.deye_inverter_power", "Load"),
         ("sensor.deye_battery_power", "Battery"),
         ("sensor.deye_essential_power", "Essential"),
@@ -1411,7 +1411,7 @@ async def get_overview_data():
         return {"ok": st.get("ok"), "state": st.get("state"), "unit": st.get("unit"), "error": st.get("error")}
     flow_gauges = {
         "load": {"power_w": _num("sensor.deye_inverter_power"), "state": _state("sensor.deye_inverter_power")},
-        "grid": {"power_w": _num("sensor.deye_grid_power"), "voltage_v": _num("sensor.deye_grid_voltage"), "power_state": _state("sensor.deye_grid_power"), "voltage_state": _state("sensor.deye_grid_voltage")},
+        "grid": {"power_w": _num("sensor.deye_load_power"), "voltage_v": _num("sensor.deye_grid_voltage"), "power_state": _state("sensor.deye_load_power"), "voltage_state": _state("sensor.deye_grid_voltage")},
         "battery": {"power_w": _num("sensor.deye_battery_power"), "soc_pct": _num(BATTERY_PERCENTAGE), "power_state": _state("sensor.deye_battery_power"), "soc_state": _state(BATTERY_PERCENTAGE)},
         "pv": {"power_w": _num("sensor.deye_pv_power"), "day_kwh": _num("sensor.deye_day_pv_energy"), "power_state": _state("sensor.deye_pv_power"), "day_state": _state("sensor.deye_day_pv_energy")},
     }
