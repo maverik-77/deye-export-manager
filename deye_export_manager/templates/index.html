@@ -90,7 +90,13 @@
             <p class="text-blue-100 text-sm"><i class="mdi mdi-information"></i> <strong>Overview:</strong> Vital inverter details and historical graphs are pulled live from Home Assistant (Deye/Sunsynk entities). Graphs use HA history data; missing entities are shown as unavailable.</p>
         </div>
         <div id="overview-root" data-root-path="{{ root_path }}">
-            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+                <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-4 card">
+                    <h2 class="text-base sm:text-lg font-semibold mb-2 flex items-center gap-2"><i class="mdi mdi-chart-donut"></i> Power Flow Now</h2>
+                    <p class="text-xs text-gray-400 mb-2">Load, Grid, PV, Battery (live W). Grid/Battery signs shown in labels.</p>
+                    <div id="top-snapshot-chart" style="position:relative;height:180px"></div>
+                    <p id="top-snapshot-status" class="text-xs text-gray-400 mt-1 hidden"></p>
+                </div>
                 {% for g in overview_data.groups %}
                 <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-5 card">
                     <h2 class="text-lg font-semibold mb-3 flex items-center gap-2"><i class="mdi mdi-gauge"></i> {{ g.title }}</h2>
@@ -825,36 +831,71 @@
       function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
       function buildSnapshotCharts(){
         if(!snapshotWrap) return;
+        var topWrap = document.getElementById('top-snapshot-chart');
+        var topStatusEl = document.getElementById('top-snapshot-status');
+        function setTopStatus(msg, isErr){ if(!topStatusEl) return; if(!msg){ topStatusEl.classList.add('hidden'); topStatusEl.textContent=''; return; } topStatusEl.textContent=msg; topStatusEl.className='text-xs mt-1 '+(isErr?'text-red-400':'text-gray-400'); topStatusEl.classList.remove('hidden'); }
         destroySnapshotCharts(); snapshotWrap.innerHTML = '';
-        if(!window.Chart){ setSnapshotStatus('Chart.js failed to load; snapshot charts unavailable.', true); return; }
-        if(!snapshotCharts.length){ setSnapshotStatus('No snapshot chart configuration available.', true); return; }
-        var rendered = 0;
+        if(topWrap) topWrap.innerHTML = '';
+        if(topStatusEl){ topStatusEl.classList.add('hidden'); topStatusEl.textContent=''; }
+        if(!window.Chart){ setSnapshotStatus('Chart.js failed to load; snapshot charts unavailable.', true); setTopStatus('Chart.js unavailable.', true); return; }
+        if(!snapshotCharts.length){ setSnapshotStatus('No snapshot chart configuration available.', true); setTopStatus('No data.', true); return; }
+        var rendered = 0, topRendered = false;
         snapshotCharts.forEach(function(sc, sci){
           var items = sc.items || [];
-          var labels = [], vals = [], bg = [];
+          var labels = [], vals = [], bg = [], actualVals = [];
           items.forEach(function(it, ii){
             var v = it.value;
             if(v === null || v === undefined || isNaN(Number(v))) return;
             v = Number(v);
-            if(sc.chart_type === 'doughnut' && Math.abs(v) < 0.0001) return;
-            labels.push(it.label || it.entity_id);
-            vals.push(v);
+            var chartType0 = sc.chart_type || 'bar';
+            if((chartType0 === 'doughnut' || chartType0 === 'pie') && Math.abs(v) < 0.0001) return;
+            var absV = Math.abs(v);
+            if(chartType0 === 'half_doughnut' && absV < 0.0001 && v === 0){ /* keep zero? skip tiny */ }
+            actualVals.push(v);
+            vals.push(chartType0 === 'half_doughnut' ? absV : v);
+            var baseLabel = it.label || it.entity_id;
+            if(chartType0 === 'half_doughnut'){
+              var signVal = (Math.round(v*100)/100);
+              labels.push(baseLabel + ': ' + signVal + (sc.unit?(' '+sc.unit):''));
+            } else {
+              labels.push(baseLabel);
+            }
             bg.push(colors[(sci*3 + ii) % colors.length]);
           });
-          var card = document.createElement('div');
-          card.className = 'bg-gray-900/35 border border-gray-700/60 rounded-xl p-4';
+          var isTop = !!sc.top && !!topWrap;
+          var targetWrap = isTop ? topWrap : null;
+          var card;
+          if(!isTop){
+            card = document.createElement('div');
+            card.className = 'bg-gray-900/35 border border-gray-700/60 rounded-xl p-4';
+          }
           if(!labels.length){
-            card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+esc(sc.title||'Chart')+(sc.unit?' <span class="text-gray-400 font-normal">('+esc(sc.unit)+')</span>':'')+'</h3><p class="text-sm text-gray-400">No numeric data available for this chart (entities may be unavailable or values are zero for this chart type).</p>';
-            snapshotWrap.appendChild(card);
+            var msg = '<p class="text-sm text-gray-400">No numeric data available for this chart (entities may be unavailable or values are zero for this chart type).</p>';
+            if(isTop){ targetWrap.innerHTML = msg; setTopStatus('No numeric data available.', true); }
+            else { card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+esc(sc.title||'Chart')+(sc.unit?' <span class="text-gray-400 font-normal">('+esc(sc.unit)+')</span>':'')+'</h3>'+msg; snapshotWrap.appendChild(card); }
             return;
           }
-          rendered++;
-          card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+esc(sc.title||'Chart')+(sc.unit?' <span class="text-gray-400 font-normal">('+esc(sc.unit)+')</span>':'')+'</h3><div style="position:relative;height:240px"><canvas></canvas></div>';
-          snapshotWrap.appendChild(card);
-          var ctx = card.querySelector('canvas').getContext('2d');
+          if(isTop) topRendered = true; else rendered++;
           var chartType = sc.chart_type || 'bar';
+          if(!isTop){
+            card.innerHTML = '<h3 class="text-sm font-semibold text-gray-200 mb-2">'+esc(sc.title||'Chart')+(sc.unit?' <span class="text-gray-400 font-normal">('+esc(sc.unit)+')</span>':'')+'</h3><div style="position:relative;height:240px"><canvas></canvas></div>';
+            snapshotWrap.appendChild(card);
+          } else {
+            targetWrap.innerHTML = '<canvas></canvas>';
+          }
+          var ctx = (isTop ? targetWrap : card).querySelector('canvas').getContext('2d');
           var cfg;
-          if(chartType === 'doughnut' || chartType === 'pie'){
+          if(chartType === 'half_doughnut'){
+            cfg = {
+              type: 'doughnut',
+              data: { labels: labels, datasets: [{ data: vals, backgroundColor: bg, borderColor: 'rgba(17,24,39,0.9)', borderWidth: 2 }] },
+              options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                rotation: -90, circumference: 180, cutout: '55%',
+                plugins: { legend: { position: 'bottom', labels: { color: '#d1d5db', boxWidth: 10, font: { size: 11 } } }, tooltip: { callbacks: { label: function(c){ var i=c.dataIndex; var av=actualVals[i]; var base=(items[i]&&items[i].label)||''; return ' '+base+': '+av+(sc.unit?(' '+sc.unit):''); } } } }
+              }
+            };
+          } else if(chartType === 'doughnut' || chartType === 'pie'){
             cfg = {
               type: chartType,
               data: { labels: labels, datasets: [{ data: vals, backgroundColor: bg, borderColor: 'rgba(17,24,39,0.9)', borderWidth: 2 }] },
@@ -875,9 +916,10 @@
             };
           }
           snapshotInstances.push(new Chart(ctx, cfg));
+          if(isTop) setTopStatus('');
         });
-        if(!rendered && snapshotCharts.length){ setSnapshotStatus('Snapshot charts loaded, but no numeric values were available. Check entity availability.', true); }
-        else { setSnapshotStatus(''); }
+        if(!rendered && (snapshotCharts.filter(function(x){return !x.top;}).length)){ setSnapshotStatus('Snapshot charts loaded, but no numeric values were available. Check entity availability.', true); }
+        else if(rendered || snapshotCharts.filter(function(x){return !x.top;}).length===0){ setSnapshotStatus(''); }
       }
       function buildCharts(history){
         if(!chartsWrap) return;

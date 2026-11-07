@@ -1253,6 +1253,12 @@ OVERVIEW_GRAPH_SERIES = [
 ]
 
 OVERVIEW_SNAPSHOT_CHARTS = [
+    {"id": "power_flow_halfpie", "title": "Power Flow Now", "chart_type": "half_doughnut", "unit": "W", "items": [
+        ("sensor.deye_load_power", "Load"),
+        ("sensor.deye_grid_power", "Grid"),
+        ("sensor.deye_pv_power", "PV"),
+        ("sensor.deye_battery_power", "Battery"),
+    ], "top": True},
     {"id": "today_energy_mix", "title": "Today's Energy Mix", "chart_type": "doughnut", "unit": "kWh", "items": [
         ("sensor.deye_day_pv_energy", "PV"),
         ("sensor.deye_day_load_energy", "Load"),
@@ -1398,7 +1404,7 @@ async def get_overview_data():
         has_data = any(v["value"] is not None for v in vals)
         snapshot_charts.append({
             "id": sc["id"], "title": sc["title"], "chart_type": sc["chart_type"], "unit": sc.get("unit") or "",
-            "items": vals, "has_data": has_data,
+            "items": vals, "has_data": has_data, "top": bool(sc.get("top")),
         })
     return {"ok": True, "groups": groups, "graphs": graphs, "snapshot_charts": snapshot_charts, "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
