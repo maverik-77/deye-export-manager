@@ -70,12 +70,13 @@
                 <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-yellow-500/15 text-yellow-400 pulse-dot"><i class="mdi mdi-transmission-tower-export"></i></span>
                 Deye Manager
             </h1>
-            <p class="text-gray-400 mt-2">Manage Deye export schedule and inverter Time of Use programs</p>
+            <p class="text-gray-400 mt-2">Manage Deye export schedule, inverter Time of Use programs, configuration, and view live inverter data</p>
             <p class="text-gray-500 text-sm mt-1">Page loaded: {{ now_str }} — values pulled live from Home Assistant/inverter on load.</p>
         </header>
 
         <div class="flex gap-2 mb-6 border-b border-gray-700 pb-2 flex-wrap">
             <a href="{{ root_path }}/?tab=overview" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='overview' %}active{% endif %}" data-tab="overview"><i class="mdi mdi-view-dashboard"></i> Overview</a>
+            <a href="{{ root_path }}/?tab=data" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='data' %}active{% endif %}" data-tab="data"><i class="mdi mdi-database"></i> Data</a>
             <a href="{{ root_path }}/?tab=export" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='export' %}active{% endif %}" data-tab="export"><i class="mdi mdi-calendar-clock"></i> Export</a>
             <a href="{{ root_path }}/?tab=tou" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='tou' %}active{% endif %}" data-tab="tou"><i class="mdi mdi-tune-variant"></i> Time of Use</a>
             <a href="{{ root_path }}/?tab=config" class="tab-btn btn px-4 py-2 rounded-lg border border-gray-700 bg-gray-800/70 text-gray-200 {% if tab=='config' %}active{% endif %}" data-tab="config"><i class="mdi mdi-cog"></i> Configuration</a>
@@ -137,6 +138,55 @@
             </div>
         </div>
         <script id="overview-data" type="application/json">{{ overview_data | tojson }}</script>
+        {% elif tab == 'data' %}
+        <div class="bg-blue-900/25 border border-blue-700/50 rounded-xl p-4 mb-6 card slide-down">
+            <p class="text-blue-100 text-sm"><i class="mdi mdi-information"></i> <strong>Data:</strong> Read-only view of <strong>all inverter-related values</strong> pulled live from Home Assistant on page load. Includes every entity whose ID contains <code>deye</code> (all domains/states/attributes exposed). No values are editable in this tab. <span class="text-blue-200/90">Fetched: {{ all_inverter_data.now }}</span></p>
+        </div>
+        {% if not all_inverter_data.ok %}
+        <div class="mb-4 p-3 rounded-lg bg-red-900/40 border border-red-700/70 text-red-200 text-sm slide-down"><i class="mdi mdi-alert-circle"></i> <strong>Could not read inverter data from Home Assistant:</strong> {{ all_inverter_data.error }}</div>
+        {% endif %}
+        <div class="bg-gray-800/90 border border-gray-700/70 rounded-xl p-5 mb-6 card">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h2 class="text-xl font-semibold flex items-center gap-2"><i class="mdi mdi-database-eye"></i> All Inverter Data (read-only)</h2>
+                <a href="{{ root_path }}/?tab=data" class="btn px-3 py-1.5 rounded-md text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200"><i class="mdi mdi-refresh"></i> Refresh</a>
+            </div>
+            <p class="text-sm text-gray-400 mb-3">Total entities found: <strong class="text-gray-200">{{ all_inverter_data.count }}</strong>{% if all_inverter_data.domains %} — {% for d,c in all_inverter_data.domains|dictsort %}<span class="inline-block mr-2"><code>{{ d }}</code>: {{ c }}</span>{% endfor %}{% endif %}</p>
+            <div class="overflow-x-auto table-scroll">
+                <table class="w-full text-sm text-left overflow-hidden rounded-lg resp-table min-w-[980px] lg:min-w-0">
+                    <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
+                        <tr>
+                            <th class="py-2 px-2">Domain</th>
+                            <th class="py-2 px-2">Entity ID</th>
+                            <th class="py-2 px-2">Friendly name</th>
+                            <th class="py-2 px-2">State / Value</th>
+                            <th class="py-2 px-2">Unit</th>
+                            <th class="py-2 px-2">Last changed</th>
+                            <th class="py-2 px-2">Attributes (all)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for it in all_inverter_data['items'] %}
+                        <tr class="border-b border-gray-700 slot-row hover:bg-gray-700/20">
+                            <td class="py-2 px-2 font-mono text-xs" data-label="Domain"><span class="px-1.5 py-0.5 rounded bg-gray-700/70 text-gray-300">{{ it.domain }}</span></td>
+                            <td class="py-2 px-2 font-mono text-xs break-all" data-label="Entity ID">{{ it.entity_id }}</td>
+                            <td class="py-2 px-2 break-any" data-label="Friendly name">{{ it.friendly_name }}</td>
+                            <td class="py-2 px-2 font-semibold break-any {% if it.state in ['unavailable','unknown'] %}text-red-400{% elif it.state in ['on','ON','1','true'] %}text-green-400{% elif it.state in ['off','OFF','0','false'] %}text-gray-300{% else %}text-yellow-100{% endif %}" data-label="State / Value">{{ it.state }}</td>
+                            <td class="py-2 px-2 text-gray-400" data-label="Unit">{{ it.unit or '' }}</td>
+                            <td class="py-2 px-2 text-xs text-gray-400 break-any" data-label="Last changed">{{ it.last_changed or '' }}{% if it.last_updated and it.last_updated != it.last_changed %}<div class="text-gray-500">updated: {{ it.last_updated }}</div>{% endif %}</td>
+                            <td class="py-2 px-2 text-xs text-gray-400" data-label="Attributes (all)">
+                                <details>
+                                    <summary class="cursor-pointer text-blue-300 hover:text-blue-200 select-none">Show attributes</summary>
+                                    <pre class="mt-1 p-2 bg-gray-950/60 border border-gray-700/50 rounded text-[11px] leading-4 whitespace-pre-wrap break-all max-h-64 overflow-auto">{{ it.attributes_text }}</pre>
+                                </details>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="7" data-label="" class="py-4 text-center text-gray-400">No <code>deye*</code> entities were found in Home Assistant. Check the Sunsynk/Deye integration and entity naming.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
         {% elif tab == 'export' %}
 
         {% if mismatch %}

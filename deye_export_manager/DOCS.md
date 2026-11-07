@@ -2,13 +2,14 @@
 
 # Deye Manager (Home Assistant Add-on)
 
-Custom Home Assistant add-on for viewing **live inverter vitals and historical graphs** (Overview), managing a **24-hour export-power schedule** (Export), viewing/editing **Deye inverter Time of Use (TOU) programs** (Time of Use), and adjusting selected **Deye inverter configuration** settings (Configuration). It uses the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar. **Overview** is the default landing tab.
+Custom Home Assistant add-on for viewing **live inverter vitals and historical graphs** (Overview), managing a **24-hour export-power schedule** (Export), viewing/editing **Deye inverter Time of Use (TOU) programs** (Time of Use), and adjusting selected **Deye inverter configuration** settings (Configuration). It uses the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar. **Overview** is the default landing tab. A **Data** tab provides a read-only view of all `deye*` inverter values from Home Assistant.
 
 ## Required Home Assistant automations: **NONE**
 
 **You do not need to create any Home Assistant automations for this add-on to work.**
 
 - **Overview tab:** live vitals and historical graphs are **pulled from Home Assistant** (current states + HA history/recorder). Read-only; no automations required.
+- **Data tab:** read-only view of **all inverter-related entities/values** (every HA entity whose ID contains `deye`) pulled live on page load, including state, unit, timestamps, and attributes. No automations required.
 - **Export tab (schedule):** core scheduling and applying export power are handled by the add-on itself (checks every minute, plus **Save & Apply schedule to inverter now**), as long as the add-on is running, has Home Assistant API access (`homeassistant_api` / Supervisor token), and `deye_entity` is correct/controllable.
 - **Time of Use tab (TOU programs):** values are **pulled live from Home Assistant/inverter on every page load** and changes are written only when you click **Save & sync** on a row and **confirm** the old → new change (or confirm the unsaved-leave prompt). No automations required.
 - **Configuration tab:** values are **pulled live** on page load. Changes are written only when you edit a setting, click **Apply**, and **confirm** the old → new change. No automations required.
@@ -24,6 +25,12 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 - **Historical graphs (HA history/recorder):** interactive Chart.js time-series from Home Assistant history. Includes power flow, solar & load, battery power, battery SOC, battery voltage/current, grid voltage/frequency, and temperatures (battery, radiator, DC transformer) for available `deye_*` entities. Range presets: **6h, 24h, 3 days, 7 days, last 30 days, last 24 months, this year (YTD), last year** with refresh. Data is downsampled for responsiveness; missing entities/points are handled gracefully.
 - **Long-range history note:** longer ranges use adaptive HA history fetching. Results depend on **Home Assistant recorder/history retention**; older data may be sparse or unavailable if purged (HA long-term statistics are not used by the current history graph implementation).
 - **Data source:** uses the add-on’s Supervisor/Home Assistant API access (`/api/states` and history). Graph/chart availability depends on entities existing and Home Assistant recorder/history having data.
+
+### Data tab (all inverter values, read-only)
+- **Read-only completeness view** next to Overview. Pulls **live from Home Assistant on every page load** (no local storage).
+- Shows **every entity whose `entity_id` contains `deye`** (case-insensitive) — covering sensors, binary sensors, switches, selects, numbers, and other inverter integration entities/values exposed in Home Assistant.
+- For each entity: domain, entity ID, friendly name, **current state/value**, unit, last changed/updated, and **all attributes** (expandable). States like `unknown`/`unavailable` are shown clearly.
+- No values are editable in this tab; use **Time of Use** / **Configuration** / Home Assistant for supported writes.
 
 ### Export tab (local schedule, stored in add-on DB)
 - 24-hour export schedule managed in the add-on UI (ingress; no host port mapping).

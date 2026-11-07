@@ -3,6 +3,7 @@ import os
 import sqlite3
 import asyncio
 from datetime import datetime
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Form, HTTPException
@@ -669,7 +670,7 @@ async def index(request: Request):
     applied = request.query_params.get("applied")
     save_error = request.query_params.get("error")
     tab = (request.query_params.get("tab") or "overview").strip().lower()
-    if tab not in ("overview", "export", "tou", "config"):
+    if tab not in ("overview", "data", "export", "tou", "config"):
         tab = "overview"
     tou_programs = await get_tou_programs()
     active_tou_n = _active_tou_program_n(tou_programs, now=now)
@@ -686,6 +687,13 @@ async def index(request: Request):
             overview_data = {"ok": False, "error": str(e), "groups": [], "graphs": [], "snapshot_charts": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
     else:
         overview_data = {"ok": True, "groups": [], "graphs": [], "snapshot_charts": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
+    if tab == "data":
+        try:
+            all_inverter_data = await get_all_inverter_data()
+        except Exception as e:
+            all_inverter_data = {"ok": False, "error": str(e), "items": [], "count": 0, "domains": {}, "now": now.strftime("%Y-%m-%d %H:%M:%S")}
+    else:
+        all_inverter_data = {"ok": True, "items": [], "count": 0, "domains": {}, "now": now.strftime("%Y-%m-%d %H:%M:%S")}
     return HTMLResponse(template.render(
         request=request,
         slots=slots,
@@ -719,6 +727,7 @@ async def index(request: Request):
         config_saved=config_saved,
         config_error=config_error,
         overview_data=overview_data,
+        all_inverter_data=all_inverter_data,
     ))
 
 @app.post("/add_slot")
@@ -1114,6 +1123,63 @@ async def config_apply(request: Request, entity_id: str = Form(...), value: str 
     label = meta.get("label") or entity_id
     return RedirectResponse(url=f"{root_path}/?tab=config&config_saved={quote(label + ' = ' + new_label)}", status_code=303)
 
+
+
+
+async def get_all_inverter_data():
+    """Fetch all HA states and return every entity whose id contains 'deye' (case-insensitive).
+    Read-only completeness view: includes all domains/values exposed by the inverter integration.
+    """
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not HA_TOKEN:
+        return {"ok": False, "error": "No Supervisor token available", "items": [], "count": 0, "now": now_str}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{HA_URL}/api/states",
+                headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+                timeout=30.0,
+            )
+            if response.status_code >= 400:
+                return {"ok": False, "error": f"HA API error {response.status_code}", "items": [], "count": 0, "now": now_str}
+            data = response.json() or []
+    except Exception as e:
+        return {"ok": False, "error": str(e), "items": [], "count": 0, "now": now_str}
+
+    items = []
+    for st in data:
+        if not isinstance(st, dict):
+            continue
+        eid = str(st.get("entity_id") or "")
+        if "deye" not in eid.lower():
+            continue
+        attrs = st.get("attributes") or {}
+        domain = eid.split(".", 1)[0] if "." in eid else ""
+        # compact attributes text for display (safe; no secrets expected in entity states)
+        try:
+            attrs_text = json.dumps(attrs, ensure_ascii=False, sort_keys=True, default=str)
+        except Exception:
+            attrs_text = str(attrs)
+        if len(attrs_text) > 4000:
+            attrs_text = attrs_text[:4000] + "…"
+        items.append({
+            "entity_id": eid,
+            "domain": domain,
+            "state": st.get("state"),
+            "friendly_name": attrs.get("friendly_name") or eid,
+            "unit": attrs.get("unit_of_measurement"),
+            "device_class": attrs.get("device_class"),
+            "last_changed": st.get("last_changed"),
+            "last_updated": st.get("last_updated"),
+            "attributes": attrs,
+            "attributes_text": attrs_text,
+        })
+    items.sort(key=lambda x: (x.get("domain") or "", x.get("entity_id") or ""))
+    domains = {}
+    for it in items:
+        d = it.get("domain") or "other"
+        domains[d] = domains.get(d, 0) + 1
+    return {"ok": True, "items": items, "count": len(items), "domains": domains, "now": now_str}
 
 
 # ---------------- Overview / history (vitals + graphs) ----------------
