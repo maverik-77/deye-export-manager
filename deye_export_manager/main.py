@@ -649,6 +649,7 @@ async def index(request: Request):
     STARTUP_CHECK_DONE = True
     coverage_ok, coverage_error = _validate_24h_coverage(slots, require_enabled=True) if slots else (False, "No slots configured.")
     saved = request.query_params.get("saved")
+    applied = request.query_params.get("applied")
     save_error = request.query_params.get("error")
     tab = (request.query_params.get("tab") or "overview").strip().lower()
     if tab not in ("overview", "export", "tou", "config"):
@@ -687,6 +688,7 @@ async def index(request: Request):
         coverage_ok=coverage_ok,
         coverage_error=coverage_error,
         saved=saved,
+        applied=applied,
         save_error=save_error,
         tab=tab,
         tou_programs=tou_programs,
@@ -775,6 +777,7 @@ async def save_slots(request: Request):
     default_exports = form.getlist("default_export_w")
     battery_pcts = form.getlist("battery_soc_pct")
     enableds = form.getlist("enabled")
+    apply_now_requested = str(form.get("apply_now") or request.query_params.get("apply_now") or "").lower() in ("1", "true", "on", "yes")
     # back-compat if columns missing in old form posts
     if len(default_exports) != len(ids):
         default_exports = ["0"] * len(ids)
@@ -831,6 +834,11 @@ async def save_slots(request: Request):
         conn.commit()
     finally:
         conn.close()
+    if apply_now_requested:
+        active_power, changed, _info = await _compute_and_maybe_get_apply_soc()
+        if changed:
+            await apply_to_ha(active_power)
+        return RedirectResponse(url=f"{root_path}/?tab=export&saved=1&applied=1", status_code=303)
     return RedirectResponse(url=f"{root_path}/?tab=export&saved=1", status_code=303)
 
 @app.get("/api/slots")
