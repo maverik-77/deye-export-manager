@@ -1,3 +1,5 @@
+> **Warning:** This add-on was specially developed for the **Deye single-phase inverter model SUN-16K-SG01LP1-EU** and may not be compatible with other inverters/models unless specific changes are made (entity names, supported registers/features, TOU/config mappings, etc.). Verify entities and behavior carefully before use.
+
 # Deye Manager (Home Assistant Add-on)
 
 Custom Home Assistant add-on for viewing **live inverter vitals and historical graphs** (Overview), managing a **24-hour export-power schedule** (Export), viewing/editing **Deye inverter Time of Use (TOU) programs** (Time of Use), and adjusting selected **Deye inverter configuration** settings (Configuration). It uses the Supervisor/Home Assistant API and provides an **ingress UI** in the Home Assistant sidebar. **Overview** is the default landing tab.
