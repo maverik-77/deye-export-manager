@@ -684,9 +684,9 @@ async def index(request: Request):
         try:
             overview_data = await get_overview_data()
         except Exception as e:
-            overview_data = {"ok": False, "error": str(e), "groups": [], "graphs": [], "snapshot_charts": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
+            overview_data = {"ok": False, "error": str(e), "groups": [], "graphs": [], "snapshot_charts": [], "flow_gauges": {}, "now": now.strftime("%Y-%m-%d %H:%M:%S")}
     else:
-        overview_data = {"ok": True, "groups": [], "graphs": [], "snapshot_charts": [], "now": now.strftime("%Y-%m-%d %H:%M:%S")}
+        overview_data = {"ok": True, "groups": [], "graphs": [], "snapshot_charts": [], "flow_gauges": {}, "now": now.strftime("%Y-%m-%d %H:%M:%S")}
     if tab == "data":
         try:
             all_inverter_data = await get_all_inverter_data()
@@ -1253,12 +1253,6 @@ OVERVIEW_GRAPH_SERIES = [
 ]
 
 OVERVIEW_SNAPSHOT_CHARTS = [
-    {"id": "power_flow_halfpie", "title": "Power Flow Now", "chart_type": "half_doughnut", "unit": "W", "items": [
-        ("sensor.deye_load_power", "Load"),
-        ("sensor.deye_grid_power", "Grid"),
-        ("sensor.deye_pv_power", "PV"),
-        ("sensor.deye_battery_power", "Battery"),
-    ], "top": True},
     {"id": "today_energy_mix", "title": "Today's Energy Mix", "chart_type": "doughnut", "unit": "kWh", "items": [
         ("sensor.deye_day_pv_energy", "PV"),
         ("sensor.deye_day_load_energy", "Load"),
@@ -1406,7 +1400,22 @@ async def get_overview_data():
             "id": sc["id"], "title": sc["title"], "chart_type": sc["chart_type"], "unit": sc.get("unit") or "",
             "items": vals, "has_data": has_data, "top": bool(sc.get("top")),
         })
-    return {"ok": True, "groups": groups, "graphs": graphs, "snapshot_charts": snapshot_charts, "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+    def _num(eid):
+        st = by.get(eid) or {}
+        if st.get("ok"):
+            return _coerce_history_value(st.get("state"))
+        return None
+    def _state(eid):
+        st = by.get(eid) or {}
+        return {"ok": st.get("ok"), "state": st.get("state"), "unit": st.get("unit"), "error": st.get("error")}
+    flow_gauges = {
+        "load": {"power_w": _num("sensor.deye_load_power"), "state": _state("sensor.deye_load_power")},
+        "grid": {"power_w": _num("sensor.deye_grid_power"), "voltage_v": _num("sensor.deye_grid_voltage"), "power_state": _state("sensor.deye_grid_power"), "voltage_state": _state("sensor.deye_grid_voltage")},
+        "battery": {"power_w": _num("sensor.deye_battery_power"), "soc_pct": _num(BATTERY_PERCENTAGE), "power_state": _state("sensor.deye_battery_power"), "soc_state": _state(BATTERY_PERCENTAGE)},
+        "pv": {"power_w": _num("sensor.deye_pv_power"), "day_kwh": _num("sensor.deye_day_pv_energy"), "power_state": _state("sensor.deye_pv_power"), "day_state": _state("sensor.deye_day_pv_energy")},
+    }
+    return {"ok": True, "groups": groups, "graphs": graphs, "snapshot_charts": snapshot_charts, "flow_gauges": flow_gauges, "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 
 @app.get("/api/overview")
@@ -1414,7 +1423,7 @@ async def api_overview():
     try:
         return JSONResponse(await get_overview_data())
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e), "groups": [], "graphs": [], "snapshot_charts": [], "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, status_code=200)
+        return JSONResponse({"ok": False, "error": str(e), "groups": [], "graphs": [], "snapshot_charts": [], "flow_gauges": {}, "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, status_code=200)
 
 
 @app.get("/api/history")
