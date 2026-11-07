@@ -323,6 +323,23 @@ def _tou_time_sort_key(state):
         return 10**9
 
 
+def _active_tou_program_n(tou_programs, now=None):
+    """Return active TOU program number for current time (server-side at render/save)."""
+    now = now or datetime.now()
+    cur = now.hour * 60 + now.minute
+    valid = [(p.get("n"), p.get("time_sort")) for p in (tou_programs or []) if isinstance(p.get("time_sort"), int) and p.get("time_sort") < 10**9]
+    if not valid:
+        return None
+    valid.sort(key=lambda x: (x[1], x[0]))
+    active = None
+    for n, ts in valid:
+        if ts <= cur:
+            active = n
+    if active is None:
+        active = valid[-1][0]  # wrapped from last program of previous day
+    return active
+
+
 async def get_tou_programs():
     entity_ids = []
     for n in range(1, 7):
@@ -655,6 +672,8 @@ async def index(request: Request):
     if tab not in ("overview", "export", "tou", "config"):
         tab = "overview"
     tou_programs = await get_tou_programs()
+    active_tou_n = _active_tou_program_n(tou_programs, now=now)
+    active_slot_id = (active_slot or {}).get("id") if active_slot else None
     tou_saved = request.query_params.get("tou_saved")
     tou_error = request.query_params.get("tou_error")
     config_sections = await get_config_sections()
@@ -680,6 +699,7 @@ async def index(request: Request):
         expected_kw=round(expected_kw, 3),
         configured_kw=round(configured_kw, 3),
         active_slot=active_slot,
+        active_slot_id=active_slot_id,
         effective_w=eff["effective_w"],
         soc_status=soc_status,
         soc_reason=eff["reason"],
@@ -692,6 +712,7 @@ async def index(request: Request):
         save_error=save_error,
         tab=tab,
         tou_programs=tou_programs,
+        active_tou_n=active_tou_n,
         tou_saved=tou_saved,
         tou_error=tou_error,
         config_sections=config_sections,

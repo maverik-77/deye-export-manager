@@ -33,6 +33,18 @@
       .row-dirty td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
       .table-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
       .break-any { overflow-wrap: anywhere; word-break: break-word; }
+      @keyframes heartbeatGlow {
+        0%   { text-shadow: 0 0 2px rgba(250,204,21,.25), 0 0 4px rgba(250,204,21,.15); filter: brightness(1); }
+        14%  { text-shadow: 0 0 6px rgba(250,204,21,.85), 0 0 14px rgba(250,204,21,.55), 0 0 22px rgba(245,158,11,.25); filter: brightness(1.18); }
+        28%  { text-shadow: 0 0 3px rgba(250,204,21,.45), 0 0 7px rgba(250,204,21,.25); filter: brightness(1.05); }
+        42%  { text-shadow: 0 0 8px rgba(250,204,21,.95), 0 0 18px rgba(250,204,21,.65), 0 0 28px rgba(245,158,11,.35); filter: brightness(1.22); }
+        70%  { text-shadow: 0 0 3px rgba(250,204,21,.35), 0 0 6px rgba(250,204,21,.18); filter: brightness(1.02); }
+        100% { text-shadow: 0 0 2px rgba(250,204,21,.25), 0 0 4px rgba(250,204,21,.15); filter: brightness(1); }
+      }
+      .current-slot-pulse td, .current-slot-pulse td *, .current-slot-pulse .field, .current-slot-pulse input, .current-slot-pulse select, .current-slot-pulse button, .current-slot-pulse i, .current-slot-pulse span, .current-slot-pulse strong, .current-slot-pulse code {
+        animation: heartbeatGlow 1.8s ease-in-out infinite;
+      }
+      .current-slot-pulse { position: relative; }
       @media (min-width:640px){ .chart-box{ height:250px !important; } }
       @media (min-width:768px){ .chart-box{ height:280px !important; } }
       @media (max-width: 767px) {
@@ -216,7 +228,7 @@
                     </thead>
                     <tbody id="slots-tbody">
                         {% for slot in slots %}
-                        <tr class="border-b border-gray-700/70 slot-row export-row {% if slot.enabled %}bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60{% else %}bg-gray-900/40 opacity-60 border-l-2 border-l-gray-600/50{% endif %}" data-slot-enabled="{{ 1 if slot.enabled else 0 }}">
+                        <tr class="border-b border-gray-700/70 slot-row export-row {% if slot.enabled %}bg-green-950/10 hover:bg-green-900/15 border-l-2 border-l-green-500/60{% else %}bg-gray-900/40 opacity-60 border-l-2 border-l-gray-600/50{% endif %}{% if active_slot_id is not none and (slot.id|string) == (active_slot_id|string) %} current-slot-pulse{% endif %}" data-slot-enabled="{{ 1 if slot.enabled else 0 }}" data-active-now="{{ '1' if active_slot_id is not none and (slot.id|string) == (active_slot_id|string) else '0' }}">
                             <td class="py-2 pr-2 text-gray-400 cursor-grab drag-handle" data-label="Reorder" title="Drag to reorder"><i class="mdi mdi-drag-vertical"></i></td>
                             <td class="py-2 pr-2 font-mono" data-label="ID">{{ slot.id }}<input form="save-all-slots" type="hidden" name="id" value="{{ slot.id }}"></td>
                             <td class="py-2 pr-2" data-label="Start"><input form="save-all-slots" type="time" name="start_time" value="{{ slot.start_time }}" required {% if not slot.enabled %}disabled{% endif %} class="field slot-editable w-28 px-2 py-1 bg-gray-700/80 rounded-md border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono disabled:cursor-not-allowed disabled:opacity-70"></td>
@@ -283,7 +295,7 @@
                         {% set orig_mode = f.mode.state if f.mode.state not in [none,'unknown','unavailable'] else '' %}
                         {% set orig_sell = 'on' if f.sell.state in ['on','1','true','True'] else 'off' %}
                         {% set orig_voltage = f.voltage.state if f.voltage.state not in [none,'unknown','unavailable'] else '' %}
-                        <tr class="border-b border-gray-700 slot-row tou-row" data-prog="{{ p.n }}" data-form-id="tou-form-{{ p.n }}"
+                        <tr class="border-b border-gray-700 slot-row tou-row{% if active_tou_n is not none and (p.n|string) == (active_tou_n|string) %} current-slot-pulse{% endif %}" data-prog="{{ p.n }}" data-form-id="tou-form-{{ p.n }}" data-active-now="{{ '1' if active_tou_n is not none and (p.n|string) == (active_tou_n|string) else '0' }}"
                             data-orig-time="{{ orig_time|e }}" data-orig-power="{{ orig_power|e }}" data-orig-capacity="{{ orig_capacity|e }}"
                             data-orig-charge="{{ orig_charge|e }}" data-orig-mode="{{ orig_mode|e }}" data-orig-sell="{{ orig_sell|e }}" data-orig-voltage="{{ orig_voltage|e }}">
                             <td class="py-2 px-2 font-mono font-semibold" data-label="Program">#{{ p.n }}{% if not f.time.ok %}<div class="text-red-400 text-xs font-normal">read issue</div>{% endif %}</td>
