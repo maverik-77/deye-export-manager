@@ -1060,6 +1060,21 @@
       buildFlowGauges();
       buildSnapshotCharts();
       if(graphs.length) loadHistory(); else setStatus('No overview graph configuration available.', true);
+
+      async function refreshFlowGauges(){
+        if(document.hidden) return;
+        try {
+          var r = await fetch(rootPath + '/api/overview', { cache: 'no-store', headers: { 'Accept': 'application/json' } });
+          if(!r.ok) return;
+          var j = await r.json();
+          if(j && j.ok !== false && j.flow_gauges){
+            flowGauges = j.flow_gauges;
+            buildFlowGauges();
+          }
+        } catch(e) { /* keep last known values */ }
+      }
+      setInterval(refreshFlowGauges, 3000);
+      document.addEventListener('visibilitychange', function(){ if(!document.hidden) refreshFlowGauges(); });
     })();
     </script>
 
