@@ -29,7 +29,7 @@ The [Optional Home Assistant automations](#optional-home-assistant-automations-n
 ### Data tab (all inverter values, read-only)
 - **Read-only completeness view** next to Overview. Pulls **live from Home Assistant on every page load** (no local storage).
 - Shows **every entity whose `entity_id` contains `deye`** (case-insensitive) — covering sensors, binary sensors, switches, selects, numbers, and other inverter integration entities/values exposed in Home Assistant.
-- For each entity: domain, entity ID, friendly name, **current state/value**, unit, last changed/updated, and **all attributes** (expandable). States like `unknown`/`unavailable` are shown clearly.
+- **Grouped by domain** for readability (collapsible sections), while showing **all** values. For each entity: entity ID, friendly name, **current state/value**, unit, last changed/updated, and **all attributes** (expandable). States like `unknown`/`unavailable` are shown clearly.
 - No values are editable in this tab; use **Time of Use** / **Configuration** / Home Assistant for supported writes.
 
 ### Export tab (local schedule, stored in add-on DB)

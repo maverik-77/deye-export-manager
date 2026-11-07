@@ -150,42 +150,50 @@
                 <h2 class="text-xl font-semibold flex items-center gap-2"><i class="mdi mdi-database-eye"></i> All Inverter Data (read-only)</h2>
                 <a href="{{ root_path }}/?tab=data" class="btn px-3 py-1.5 rounded-md text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-200"><i class="mdi mdi-refresh"></i> Refresh</a>
             </div>
-            <p class="text-sm text-gray-400 mb-3">Total entities found: <strong class="text-gray-200">{{ all_inverter_data.count }}</strong>{% if all_inverter_data.domains %} — {% for d,c in all_inverter_data.domains|dictsort %}<span class="inline-block mr-2"><code>{{ d }}</code>: {{ c }}</span>{% endfor %}{% endif %}</p>
-            <div class="overflow-x-auto table-scroll">
-                <table class="w-full text-sm text-left overflow-hidden rounded-lg resp-table min-w-[980px] lg:min-w-0">
+            <p class="text-sm text-gray-400 mb-4">Total entities found: <strong class="text-gray-200">{{ all_inverter_data.count }}</strong>{% if all_inverter_data.domains %} — {% for d,c in all_inverter_data.domains|dictsort %}<span class="inline-block mr-2"><code>{{ d }}</code>: {{ c }}</span>{% endfor %}{% endif %}. Grouped by domain for readability (all values shown).</p>
+            {% if all_inverter_data['items'] %}
+              {% for domain, items in all_inverter_data['items']|groupby('domain') %}
+              <details open class="mb-4 border border-gray-700/60 rounded-xl bg-gray-900/20 overflow-hidden">
+                <summary class="cursor-pointer select-none px-4 py-3 bg-gray-900/35 hover:bg-gray-900/50 flex items-center justify-between gap-3">
+                  <span class="font-semibold text-gray-100"><i class="mdi mdi-folder-table-outline text-yellow-400"></i> <code class="text-yellow-200">{{ domain or 'other' }}</code></span>
+                  <span class="text-sm text-gray-400">{{ items|list|length }} entities</span>
+                </summary>
+                <div class="p-3 overflow-x-auto table-scroll">
+                  <table class="w-full text-sm text-left overflow-hidden rounded-lg resp-table min-w-[900px] lg:min-w-0">
                     <thead class="text-gray-400 border-b border-gray-600/80 bg-gray-900/20">
-                        <tr>
-                            <th class="py-2 px-2">Domain</th>
-                            <th class="py-2 px-2">Entity ID</th>
-                            <th class="py-2 px-2">Friendly name</th>
-                            <th class="py-2 px-2">State / Value</th>
-                            <th class="py-2 px-2">Unit</th>
-                            <th class="py-2 px-2">Last changed</th>
-                            <th class="py-2 px-2">Attributes (all)</th>
-                        </tr>
+                      <tr>
+                        <th class="py-2 px-2">Entity ID</th>
+                        <th class="py-2 px-2">Friendly name</th>
+                        <th class="py-2 px-2">State / Value</th>
+                        <th class="py-2 px-2">Unit</th>
+                        <th class="py-2 px-2">Last changed</th>
+                        <th class="py-2 px-2">Attributes (all)</th>
+                      </tr>
                     </thead>
                     <tbody>
-                        {% for it in all_inverter_data['items'] %}
-                        <tr class="border-b border-gray-700 slot-row hover:bg-gray-700/20">
-                            <td class="py-2 px-2 font-mono text-xs" data-label="Domain"><span class="px-1.5 py-0.5 rounded bg-gray-700/70 text-gray-300">{{ it.domain }}</span></td>
-                            <td class="py-2 px-2 font-mono text-xs break-all" data-label="Entity ID">{{ it.entity_id }}</td>
-                            <td class="py-2 px-2 break-any" data-label="Friendly name">{{ it.friendly_name }}</td>
-                            <td class="py-2 px-2 font-semibold break-any {% if it.state in ['unavailable','unknown'] %}text-red-400{% elif it.state in ['on','ON','1','true'] %}text-green-400{% elif it.state in ['off','OFF','0','false'] %}text-gray-300{% else %}text-yellow-100{% endif %}" data-label="State / Value">{{ it.state }}</td>
-                            <td class="py-2 px-2 text-gray-400" data-label="Unit">{{ it.unit or '' }}</td>
-                            <td class="py-2 px-2 text-xs text-gray-400 break-any" data-label="Last changed">{{ it.last_changed or '' }}{% if it.last_updated and it.last_updated != it.last_changed %}<div class="text-gray-500">updated: {{ it.last_updated }}</div>{% endif %}</td>
-                            <td class="py-2 px-2 text-xs text-gray-400" data-label="Attributes (all)">
-                                <details>
-                                    <summary class="cursor-pointer text-blue-300 hover:text-blue-200 select-none">Show attributes</summary>
-                                    <pre class="mt-1 p-2 bg-gray-950/60 border border-gray-700/50 rounded text-[11px] leading-4 whitespace-pre-wrap break-all max-h-64 overflow-auto">{{ it.attributes_text }}</pre>
-                                </details>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="7" data-label="" class="py-4 text-center text-gray-400">No <code>deye*</code> entities were found in Home Assistant. Check the Sunsynk/Deye integration and entity naming.</td></tr>
-                        {% endfor %}
+                      {% for it in items %}
+                      <tr class="border-b border-gray-700 slot-row hover:bg-gray-700/20">
+                        <td class="py-2 px-2 font-mono text-xs break-all" data-label="Entity ID">{{ it.entity_id }}</td>
+                        <td class="py-2 px-2 break-any" data-label="Friendly name">{{ it.friendly_name }}</td>
+                        <td class="py-2 px-2 font-semibold break-any {% if it.state in ['unavailable','unknown'] %}text-red-400{% elif it.state in ['on','ON','1','true'] %}text-green-400{% elif it.state in ['off','OFF','0','false'] %}text-gray-300{% else %}text-yellow-100{% endif %}" data-label="State / Value">{{ it.state }}</td>
+                        <td class="py-2 px-2 text-gray-400" data-label="Unit">{{ it.unit or '' }}</td>
+                        <td class="py-2 px-2 text-xs text-gray-400 break-any" data-label="Last changed">{{ it.last_changed or '' }}{% if it.last_updated and it.last_updated != it.last_changed %}<div class="text-gray-500">updated: {{ it.last_updated }}</div>{% endif %}</td>
+                        <td class="py-2 px-2 text-xs text-gray-400" data-label="Attributes (all)">
+                          <details>
+                            <summary class="cursor-pointer text-blue-300 hover:text-blue-200 select-none">Show attributes</summary>
+                            <pre class="mt-1 p-2 bg-gray-950/60 border border-gray-700/50 rounded text-[11px] leading-4 whitespace-pre-wrap break-all max-h-64 overflow-auto">{{ it.attributes_text }}</pre>
+                          </details>
+                        </td>
+                      </tr>
+                      {% endfor %}
                     </tbody>
-                </table>
-            </div>
+                  </table>
+                </div>
+              </details>
+              {% endfor %}
+            {% else %}
+              <p class="py-4 text-center text-gray-400">No <code>deye*</code> entities were found in Home Assistant. Check the Sunsynk/Deye integration and entity naming.</p>
+            {% endif %}
         </div>
         {% elif tab == 'export' %}
 
